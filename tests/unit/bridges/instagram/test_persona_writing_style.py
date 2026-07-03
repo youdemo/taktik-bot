@@ -9,6 +9,22 @@ expansion are validated separately on real dumps.
 from bridges.instagram.analysis.runtime.persona_comments import (
     owner_lines_from_comment_descs,
 )
+from bridges.instagram.analysis.runtime.persona_posts import comment_count_signal
+
+
+def test_comment_count_signal():
+    # None -> unknown (caller opens the sheet anyway)
+    assert comment_count_signal("") is None
+    assert comment_count_signal(None) is None
+    assert comment_count_signal("Comments") is None
+    # 0 -> no comments (skip the sheet)
+    assert comment_count_signal("0") == 0
+    assert comment_count_signal("0 comments") == 0
+    # any non-zero digit (incl. abbreviated) -> has comments
+    assert comment_count_signal("1") == 1
+    assert comment_count_signal("42 comments") == 1
+    assert comment_count_signal("1.2k") == 1
+    assert comment_count_signal("View all 128 comments") == 1
 
 
 def test_keeps_only_owner_rows_and_strips_handle():
