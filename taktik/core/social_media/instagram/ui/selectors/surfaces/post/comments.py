@@ -48,6 +48,15 @@ class PostCommentsSelectors:
         default_factory=lambda: list(POST_SELECTORS.post_comment_button_selectors)
     )
     comment_button_resource_id: str = "com.instagram.android:id/row_feed_button_comment"
+    # Signature of the Direct "Send post" share sheet (opened by a mis-tap on the share button next to
+    # comment). Framework/IG resource-ids → language-independent; contains() absorbs version drift.
+    # Used to detect + back out of the sheet so a mis-tap never BLOCKS the workflow.
+    share_sheet_indicators: List[str] = field(default_factory=lambda: [
+        '//*[contains(@resource-id, "direct_private_share_container_view")]',
+        '//*[contains(@resource-id, "direct_private_share_recipients_recycler_view")]',
+        '//*[contains(@resource-id, "direct_private_share_search_box")]',
+        '//*[contains(@resource-id, "direct_external_share_container_view")]',
+    ])
     button_class_name: str = POST_SELECTORS.button_class_name
     parent_view_group_class_name: str = "android.view.ViewGroup"
     comment_title_resource_id: str = "com.instagram.android:id/title_text_view"

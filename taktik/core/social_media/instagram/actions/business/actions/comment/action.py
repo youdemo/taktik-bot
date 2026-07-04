@@ -64,7 +64,16 @@ class CommentAction(BaseBusinessAction):
                 return stats
             else:
                 time.sleep(random.uniform(2, 4))
-            
+
+            # Recovery: a mis-tap on the "Send post" (share) button — which sits next to Comment in the
+            # action row — opens the Direct share sheet, which then BLOCKS the workflow (it keeps
+            # waiting, thinking it's still commenting). Detect the sheet and back out instead of getting
+            # stuck; skip this comment (the next post retries cleanly).
+            if self._dismiss_share_sheet_if_open():
+                self.logger.warning("Share sheet opened instead of comments (mis-tap) — dismissed, skipping this comment")
+                stats['errors'] += 1
+                return stats
+
             if not self._type_comment(comment_text):
                 self.logger.error("Failed to type comment")
                 stats['errors'] += 1
@@ -139,9 +148,27 @@ class CommentAction(BaseBusinessAction):
             
             self.logger.warning("Comment button not found")
             return False
-            
+
         except Exception as e:
             self.logger.error(f"Error clicking comment button: {e}")
+            return False
+
+    def _dismiss_share_sheet_if_open(self) -> bool:
+        """If the Direct 'Send post' share sheet is up (a mis-tap on the share button next to Comment),
+        back out of it so the workflow isn't blocked. Returns True if the sheet was open + dismissed."""
+        indicators = getattr(self.post_selectors, 'share_sheet_indicators', [])
+        try:
+            if not any(self.device.xpath(sel).exists for sel in indicators):
+                return False
+            # Back out (bottom sheets close on back). Up to two presses in case a nested view is on top.
+            for _ in range(2):
+                self.device.press("back")
+                time.sleep(random.uniform(0.5, 1.0))
+                if not any(self.device.xpath(sel).exists for sel in indicators):
+                    break
+            return True
+        except Exception as e:
+            self.logger.debug(f"Share-sheet dismiss check failed: {e}")
             return False
     
     def _type_comment(self, comment_text: str) -> bool:

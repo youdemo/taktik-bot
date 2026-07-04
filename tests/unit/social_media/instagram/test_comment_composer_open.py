@@ -78,3 +78,51 @@ def test_comment_field_selectors_match_v410_multiline_autocompletetextview():
     assert any('AutoCompleteTextView' in s for s in sels)
     # The v410 thread hint is covered too.
     assert any('Rejoindre la conversation' in s for s in sels)
+
+
+# ── Share-sheet recovery: a mis-tap on "Send post" opens the Direct share sheet, which must be
+#    backed out of so the workflow is never blocked. ──────────────────────────────────────────
+
+class _ShareDevice:
+    """Reports the share sheet as present until a back press dismisses it; counts back presses."""
+
+    def __init__(self, present):
+        self._present = present
+        self.back_presses = 0
+
+    def xpath(self, query):
+        return _XPath(self._present)
+
+    def press(self, key):
+        self.back_presses += 1
+        self._present = False  # a back press closes the bottom sheet
+
+
+def _make_share(present):
+    c = object.__new__(CommentAction)
+    c.device = _ShareDevice(present)
+    c.post_selectors = POST_COMMENTS_SELECTORS
+    c.logger = logging.getLogger("test_comment")
+    return c
+
+
+def test_dismiss_share_sheet_when_open(monkeypatch):
+    import taktik.core.social_media.instagram.actions.business.actions.comment.action as mod
+    monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
+    c = _make_share(True)
+    assert c._dismiss_share_sheet_if_open() is True
+    assert c.device.back_presses >= 1
+
+
+def test_dismiss_share_sheet_noop_when_absent():
+    c = _make_share(False)
+    assert c._dismiss_share_sheet_if_open() is False
+    assert c.device.back_presses == 0
+
+
+def test_share_sheet_indicators_use_language_independent_direct_ids():
+    inds = POST_COMMENTS_SELECTORS.share_sheet_indicators
+    assert any("direct_private_share_container_view" in s for s in inds)
+    assert any("direct_private_share_recipients_recycler_view" in s for s in inds)
+    # No localized text — resource-id based, so it holds across languages.
+    assert all("@text" not in s for s in inds)
