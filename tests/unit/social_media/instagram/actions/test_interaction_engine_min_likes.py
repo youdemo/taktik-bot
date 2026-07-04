@@ -99,6 +99,10 @@ class _Engine(InteractionEngineMixin, ConfigParsingMixin):
     def _handle_follow_suggestions_popup(self):
         self.popups += 1
 
+    def _recover_from_blocking_modal(self, *a, **k):
+        # Device IO stub: production composes ModalRecoveryMixin; here the screen is always clean.
+        return None
+
     def _view_stories_on_current_profile(self, username, do_story_like=False,
                                          max_story_likes=3, fallback_like_slot=-1, max_stories=3):
         return self._story_result

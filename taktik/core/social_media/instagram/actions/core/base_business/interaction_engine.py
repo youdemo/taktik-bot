@@ -139,6 +139,12 @@ class InteractionEngineMixin:
                     if result.get('comments', 0) > 0:
                         emit_step("comment", action="posted", target=username, count=result['comments'])
 
+            # The like/comment phase taps the post action bar, where the SHARE button sits next to
+            # comment — a mis-tap there opens the Direct share sheet, which would block the
+            # follow/story phase that follows. Clear any such stray modal before continuing so the
+            # rest of the profile still runs (proactive counterpart to the time-based watchdog).
+            self._recover_from_blocking_modal(username, context="after like/comment")
+
             # === PHASE END — header-dependent actions, after a humanized return to the top ===
             # The like flow above scrolls the post grid down, leaving the profile HEADER (the avatar
             # story ring + the follow button) off-screen — which silently made BOTH follow and story
@@ -150,6 +156,10 @@ class InteractionEngineMixin:
                     self._do_watch_story(username, plan, profile_data, result)
                 if follow_phase == 'end':
                     self._do_follow(username, plan, profile_data, result)
+
+            # Final sweep before leaving: never hand the next profile a screen with a blocking modal
+            # still open (a stray share sheet here would poison the next profile's navigation).
+            self._recover_from_blocking_modal(username, context="leaving profile")
 
             return result
 

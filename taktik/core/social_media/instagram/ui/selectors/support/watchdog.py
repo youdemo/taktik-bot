@@ -34,10 +34,15 @@ class WatchdogSelectors:
             "name": "share_bottom_sheet",
             "label": "Share bottom sheet",
             "indicators": [
-                'id/bottom_sheet_container"',
+                # Language-independent resource-ids for the Direct "Send post" share sheet — hold in
+                # any app locale (the old `text="Share"` signal missed FR "Partager"). Kept in sync
+                # with ui/selectors/support/blocking_modals.py.
+                'direct_private_share_recipients_recycler_view',
+                'direct_private_share_container_view',
+                'direct_external_share_container_view',
                 'text="Share"',
             ],
-            "min_matches": 2,
+            "min_matches": 1,
             "recovery": ["back"],
         },
         {

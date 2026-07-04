@@ -30,6 +30,7 @@ from ....ui.extractors import InstagramUIExtractors
 
 from .profile_processing import ProfileProcessingMixin, ProfileProcessingResult
 from .popup_handling import PopupHandlingMixin
+from .modal_recovery import ModalRecoveryMixin
 from .config_parsing import ConfigParsingMixin
 from .interaction_engine import InteractionEngineMixin
 from .liker_extraction import LikerExtractionMixin
@@ -39,6 +40,7 @@ from .stats_recording import StatsRecordingMixin
 class BaseBusinessAction(
     ProfileProcessingMixin,
     PopupHandlingMixin,
+    ModalRecoveryMixin,
     ConfigParsingMixin,
     InteractionEngineMixin,
     LikerExtractionMixin,
