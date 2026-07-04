@@ -208,7 +208,9 @@ def install_instagram_ai_hooks(
                     post_desc = ""
                     post_language = None
                     if ai_config.get("postAnalysis", False):
-                        analysis = ai.analyze_post(screenshot_path, username=username, response_language=language)
+                        # Feed the author's caption too: it's the reliable language signal (the post
+                        # screenshot often carries stylised/English design text while the post is FR).
+                        analysis = ai.analyze_post(screenshot_path, username=username, response_language=language, post_caption=post_caption)
                         if analysis.get("success"):
                             post_desc = analysis["description"]
                             post_language = analysis.get("post_language")

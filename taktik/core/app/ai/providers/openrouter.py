@@ -760,7 +760,8 @@ class AIService:
             "duration_ms": duration_ms,
         }
 
-    def analyze_post(self, screenshot_path: str, username: str = None, response_language: str = 'en') -> Dict[str, Any]:
+    def analyze_post(self, screenshot_path: str, username: str = None, response_language: str = 'en',
+                     post_caption: str = '') -> Dict[str, Any]:
         """
         Analyze a post screenshot to understand its content.
         Returns a text description of the post.
@@ -780,10 +781,15 @@ class AIService:
                       'pt': 'Portuguese', 'it': 'Italian', 'nl': 'Dutch'}.get(response_language, 'English')
         system_prompt = f"""You are an expert at analyzing Instagram posts. Describe the post concisely (2-4 sentences) in {_lang_full}.
 Identify: main subject, visual style, mood, any visible text (quote it exactly).
-At the end, on a new line, write in ENGLISH: "Post language: <language>" — the ACTUAL language of the post's text (e.g. "Post language: French"), regardless of the description language above.
+At the end, on a new line, write in ENGLISH: "Post language: <language>" — the ACTUAL language the post is written in (e.g. "Post language: French"), regardless of the description language above. Determine it from the author's CAPTION when one is provided (it is the most reliable signal — an image can carry English design text while the post is French); otherwise from the visible text.
 No markdown formatting."""
 
-        user_prompt = "Describe this Instagram post. Be concise and precise."
+        caption_block = ''
+        if post_caption and post_caption.strip():
+            # The author's own words are the most reliable language signal (the screenshot's overlay
+            # text is often stylised/English while the post is another language). Feed it to the model.
+            caption_block = f"\n\nAuthor's caption (authoritative for the post language):\n{post_caption.strip()[:600]}"
+        user_prompt = f"Describe this Instagram post. Be concise and precise.{caption_block}"
 
         result = self.vision_completion(system_prompt, user_prompt, screenshot_path,
                                         temperature=0.2, max_tokens=300)
