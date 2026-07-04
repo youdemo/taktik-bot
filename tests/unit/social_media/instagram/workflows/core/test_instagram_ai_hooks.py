@@ -6,6 +6,7 @@ import pytest
 from taktik.core.social_media.instagram.workflows.core.ai_hooks import (
     crop_screenshot_to_post,
     install_instagram_ai_hooks,
+    _load_cached_qualification,
     _resolve_comment_language,
 )
 
@@ -105,3 +106,51 @@ def test_install_ai_hooks_without_device_is_noop_and_logs_warning():
 )
 def test_resolve_comment_language_policy(base_lang, post_language, expected):
     assert _resolve_comment_language(base_lang, post_language) == expected
+
+
+class _FakeDb:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def get_profiles_by_usernames(self, usernames):
+        return list(self._rows)
+
+
+def _patch_db(monkeypatch, rows):
+    monkeypatch.setattr(
+        "taktik.core.database.local.service.get_local_database",
+        lambda: _FakeDb(rows),
+    )
+
+
+def test_load_cached_qualification_reuses_stored_niche(monkeypatch):
+    # A profile already AI-qualified in the DB is returned so the interaction hook can reuse it
+    # instead of re-paying for a fresh vision classification.
+    _patch_db(monkeypatch, [{"username": "known", "niche": "fitness", "niche_category": "sport"}])
+    row = _load_cached_qualification("known")
+    assert row is not None
+    assert row["niche"] == "fitness"
+
+
+def test_load_cached_qualification_matches_case_insensitively(monkeypatch):
+    _patch_db(monkeypatch, [{"username": "Known_User", "profession": "coach"}])
+    assert _load_cached_qualification("known_user") is not None
+
+
+def test_load_cached_qualification_none_when_not_ai_qualified(monkeypatch):
+    # A bare profile row with no niche/category/profession must NOT be treated as qualified.
+    _patch_db(monkeypatch, [{"username": "bare", "full_name": "Bare Profile"}])
+    assert _load_cached_qualification("bare") is None
+
+
+def test_load_cached_qualification_none_when_absent(monkeypatch):
+    _patch_db(monkeypatch, [])
+    assert _load_cached_qualification("ghost") is None
+
+
+def test_load_cached_qualification_handles_db_errors(monkeypatch):
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("taktik.core.database.local.service.get_local_database", _boom)
+    assert _load_cached_qualification("whoever") is None

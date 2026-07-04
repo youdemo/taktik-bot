@@ -60,6 +60,31 @@ def _resolve_comment_language(base_lang: str, post_language: Any) -> "str | None
     return None  # neither the account language nor English → don't comment
 
 
+def _load_cached_qualification(username: str) -> "dict | None":
+    """Return this profile's already-stored AI qualification (niche / category / profession) from the
+    local DB, or None if it was never AI-qualified.
+
+    Lets the interaction hook REUSE a prior scraping analysis instead of re-paying for the vision
+    classification of a profile we've already qualified — the same dedup the scraping deep-qualify
+    path already applies (avoids paying twice for the same profile analysis)."""
+    if not username:
+        return None
+    try:
+        from taktik.core.database.local.service import get_local_database
+
+        rows = get_local_database().get_profiles_by_usernames([username]) or []
+    except Exception:
+        return None
+    target = username.lower()
+    for row in rows:
+        if str(row.get("username", "")).lower() != target:
+            continue
+        # Only reuse when there is an actual AI classification stored (not just a bare profile row).
+        if any([row.get("niche_category"), row.get("niche"), row.get("profession")]):
+            return row
+    return None
+
+
 def crop_screenshot_to_post(img: Any, device: Any) -> Any:
     """Crop a full-screen screenshot to the currently visible post area."""
     try:
@@ -293,6 +318,20 @@ def install_instagram_ai_hooks(
             account_sub_niche = ai_config.get("accountSubNiche") or ai_config.get("account_sub_niche")
 
             def ai_perform_interactions(self_engine, username, config, profile_data=None):
+                # Reuse an existing AI qualification instead of re-paying for the vision classification:
+                # if this profile was already scraped + AI-qualified (its niche is in the DB), skip the
+                # re-analysis entirely. Same dedup the scraping path already applies — a profile's niche
+                # is stable, so re-classifying it would just burn tokens for a result we already have.
+                cached = _load_cached_qualification(username)
+                if cached:
+                    niche = cached.get("niche") or cached.get("niche_category") or "?"
+                    log("info", f"@{username}: qualification IA déjà en base ({niche}) — réutilisée (pas de nouvelle analyse IA)")
+                    if isinstance(profile_data, dict):
+                        profile_data["ai_niche"] = cached.get("niche")
+                        profile_data["ai_niche_category"] = cached.get("niche_category")
+                        profile_data["ai_reused_qualification"] = True
+                    return original_perform(self_engine, username, config, profile_data)
+
                 try:
                     tmp_dir = os.path.join(tempfile.gettempdir(), "taktik_ai")
                     os.makedirs(tmp_dir, exist_ok=True)
