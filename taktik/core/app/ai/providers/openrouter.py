@@ -839,7 +839,8 @@ No markdown formatting."""
     def generate_smart_comment(self, post_description: str, username: str,
                                 niche: str = "general", language: str = "auto",
                                 post_caption: str = "", account_persona: dict = None,
-                                platform: str = "instagram") -> Dict[str, Any]:
+                                platform: str = "instagram", app_language: str = "en",
+                                post_screenshot_path: str = None) -> Dict[str, Any]:
         """
         Generate a contextual smart comment based on post analysis.
         `post_description` is the vision model's description of the post image;
@@ -885,14 +886,18 @@ No markdown formatting."""
 
         # Render the target language as a full name in the prompt ("Write in French", not "Write in
         # fr"). "auto" is handled separately (match the post's language).
-        _comment_lang_label = {
+        _lang_names = {
             'fr': 'French', 'en': 'English', 'es': 'Spanish', 'pt': 'Portuguese',
             'it': 'Italian', 'de': 'German', 'nl': 'Dutch', 'ar': 'Arabic',
-        }.get(language, language)
+        }
+        _comment_lang_label = _lang_names.get(language, language)
+        # The REASONING is operator-facing (shown on the Agent card, feeds the autonomous-mode
+        # decision trace) so it is written in the APP language, not the comment's language.
+        _reasoning_lang_label = _lang_names.get(app_language, 'English')
 
         system_prompt = f"""You are a {_platform_label(platform)} engagement expert for the "{niche}" niche.
 Write a short, authentic comment that reacts to the post the way a REAL person scrolling {_platform_label(platform)} would — NOT a polished, literary or formal sentence.
-{brand_block}{style_block}Rules:
+{brand_block}{style_block}Rules for the COMMENT:
 - No hashtags
 - Write casually and spontaneously: a quick reaction (a few words to one short line), conversational — never stiff or formal
 - Do NOT end with a period or other formal end punctuation — real social-media comments almost never end with a full stop
@@ -901,7 +906,9 @@ Write a short, authentic comment that reacts to the post the way a REAL person s
 - Match the energy/tone of the post
 - If the author's caption is provided, react to what THEY said (their announcement, question or joke), not only the visual
 - {"Write in the same language as the post" if language == "auto" else f"Write in {_comment_lang_label}"}
-Reply ONLY with the comment text, nothing else."""
+
+Respond with ONLY a JSON object, on a single line, nothing else:
+{{"reasoning": "<one short sentence in {_reasoning_lang_label} explaining WHY you wrote this specific comment — what in the post you are reacting to and how it fits our account's voice/goal>", "comment": "<the comment itself, following EVERY rule above>"}}"""
 
         parts = []
         if post_description:
@@ -910,7 +917,7 @@ Reply ONLY with the comment text, nothing else."""
             parts.append(f'The author\'s caption: "{post_caption[:1000]}"')
         user_prompt = "\n\n".join(parts) + "\n\nGenerate a natural, engaging comment."
 
-        result = self.text_completion(system_prompt, user_prompt, temperature=0.9, max_tokens=100)
+        result = self.text_completion(system_prompt, user_prompt, temperature=0.9, max_tokens=220)
         duration_ms = int((time.time() - t0) * 1000)
 
         if not result["success"]:
@@ -918,18 +925,42 @@ Reply ONLY with the comment text, nothing else."""
                 self.ipc.ai_error(result.get("error", "Comment generation failed"), username)
             return result
 
-        comment = result["text"].strip().strip('"').strip("'")
+        # Parse the {reasoning, comment} JSON. Robust fallback: if the model didn't return valid
+        # JSON, treat the whole text as the comment (prior behaviour) with no reasoning.
+        raw = result["text"].strip()
+        reasoning = ""
+        comment = raw
+        try:
+            start, end = raw.find("{"), raw.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                obj = json.loads(raw[start:end + 1])
+                comment = (obj.get("comment") or "").strip() or raw
+                reasoning = (obj.get("reasoning") or "").strip()
+        except Exception:
+            comment = raw
+        comment = comment.strip().strip('"').strip("'")
 
         if self.ipc:
+            # Attach the DECISION CONTEXT to the card: WHY (reasoning), what the post was about
+            # (vision description + author caption) and the exact image sent to the model.
+            screenshot_url = None
+            if post_screenshot_path:
+                try:
+                    screenshot_url = self._image_to_thumbnail_url(post_screenshot_path, max_size=600)
+                except Exception:
+                    screenshot_url = None
             self.ipc.ai_comment_ready(
                 username=username, comment=comment, duration_ms=duration_ms,
                 model=result.get("model"), provider="openrouter",
                 cost_usd=result.get("cost_usd"),
+                reasoning=reasoning, post_description=post_description,
+                post_caption=post_caption, screenshot=screenshot_url,
             )
 
         return {
             "success": True,
             "comment": comment,
+            "reasoning": reasoning,
             "model": result.get("model"),
             "provider": "openrouter",
             "cost_usd": result.get("cost_usd"),

@@ -268,6 +268,8 @@ def install_instagram_ai_hooks(
                         language=comment_lang,
                         post_caption=post_caption,
                         account_persona=account_persona,
+                        app_language=language,
+                        post_screenshot_path=screenshot_path,
                     )
                     if result.get("success") and result.get("comment"):
                         ai_comment = result["comment"]

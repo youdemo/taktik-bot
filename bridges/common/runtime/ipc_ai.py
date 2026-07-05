@@ -60,13 +60,29 @@ class AIIpcMixin:
                   prompt=prompt, model=model, workflow_type="automation")
 
     def ai_comment_ready(self, username: str, comment: str, duration_ms: int = 0,
-                         model: str = None, provider: str = None, cost_usd: float = None) -> None:
-        """Signal that AI smart comment is ready."""
+                         model: str = None, provider: str = None, cost_usd: float = None,
+                         reasoning: str = None, post_description: str = None,
+                         post_caption: str = None, screenshot: str = None) -> None:
+        """Signal that AI smart comment is ready.
+
+        Carries the DECISION CONTEXT so the Agent card can show WHY this comment was written and
+        what it reacted to: `reasoning` (the model's short why), `post_description` (the vision
+        analysis of the post), `post_caption` (the author's own words), and `screenshot` (a data-URL
+        thumbnail of the post that was sent to the multimodal model). Also feeds the autonomous
+        mode's decision trace."""
         data = dict(target_username=username, comment=comment, result=comment,
                     duration_ms=duration_ms, model=model, provider=provider,
                     workflow_type="automation")
         if cost_usd is not None:
             data["cost_usd"] = cost_usd
+        if reasoning:
+            data["reasoning"] = reasoning
+        if post_description:
+            data["post_description"] = post_description
+        if post_caption:
+            data["post_caption"] = post_caption
+        if screenshot:
+            data["screenshot"] = screenshot
         self.send("ai_comment_done", **data)
 
     def ai_error(self, error: str, username: str = None) -> None:
