@@ -26,6 +26,7 @@ def install_tiktok_ai_hooks(
     *,
     log: LogCallback = lambda level, msg: None,
     emit_relevance: Optional[EmitRelevance] = None,
+    language: str = "en",
 ) -> None:
     """Install the TikTok AI hooks based on the AI config flags.
 
@@ -34,6 +35,8 @@ def install_tiktok_ai_hooks(
         ai_config: the run's `ai` config block (enabled, profileAnalysis, accountNiche…).
         log: (level, message) logger.
         emit_relevance: callback (username, payload) to surface the verdict to the UI.
+        language: the Taktik APP language — the operator-facing engagement `reason` is written
+            in it (shown on the Agent panel). Mirrors the Instagram hook.
     """
     if not ai or not ai_config.get("enabled", False):
         return
@@ -72,6 +75,7 @@ def install_tiktok_ai_hooks(
                                 account_niche=account_niche,
                                 account_sub_niche=account_sub_niche,
                                 platform="tiktok",
+                                response_language=language,
                             )
                             classification = (result or {}).get("classification") or {}
                             engagement = classification.get("engagement")

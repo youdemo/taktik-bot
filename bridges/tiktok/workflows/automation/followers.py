@@ -52,7 +52,9 @@ def _install_followers_ai(config: Dict[str, Any]) -> None:
                 like=payload.get("like"),
             )
 
-        install_tiktok_ai_hooks(ai_service, ai_config, log=_bridge_log, emit_relevance=_emit)
+        app_language = config.get("language") or config.get("appLanguage") or "en"
+        install_tiktok_ai_hooks(ai_service, ai_config, log=_bridge_log, emit_relevance=_emit,
+                                language=app_language)
     except Exception as exc:
         logger.warning(f"Could not install TikTok AI hooks: {exc}")
 
