@@ -33,11 +33,19 @@ class AgentIpcMixin:
             data["model"] = model
         self.send("agent_decision", **data)
 
-    def agent_status(self, status: str, message: str = "", stats: dict = None) -> None:
-        """Send Taktik Agent session status update."""
+    def agent_status(self, status: str, message: str = "", stats: dict = None,
+                     message_key: str = None) -> None:
+        """Send Taktik Agent session status update.
+
+        `message` stays as an English fallback; `message_key` (optional) is a stable i18n key the
+        desktop localizes into the app language for fixed status lines. Dynamic messages (an
+        exception string, or a desktop-provided orchestration line already localized) send no key,
+        so the desktop shows `message` verbatim."""
         data = dict(status=status, message=message, workflow_type="taktik_agent")
         if stats:
             data["stats"] = stats
+        if message_key:
+            data["message_key"] = message_key
         self.send("agent_status", **data)
 
     def strategy_switch(self, from_strategy: str, to_strategy: str, hashtag: str = None) -> None:

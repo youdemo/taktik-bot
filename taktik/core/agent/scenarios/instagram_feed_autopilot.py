@@ -123,30 +123,33 @@ class TaktikAgentWorkflow:
         try:
             # Step 1: Identify the bot account and load persona
             if not self._initialize_persona():
-                return self._fail("Could not identify bot account")
+                return self._fail("Could not identify bot account", message_key="agentStatusErrNoAccount")
 
             # Step 2: Consume desktop-provided orchestration context
             self._apply_desktop_orchestration_context()
 
             # Step 3: Initialize AI decision engine
             if not self._initialize_ai():
-                return self._fail("Could not initialize AI service — check API key")
+                return self._fail("Could not initialize AI service — check API key",
+                                  message_key="agentStatusErrNoAi")
 
             # Step 4: Navigate to home feed
-            self._announce_desktop_step("browse_feed", "Navigating to home feed")
-            self._send_status("navigating", "Navigating to home feed…")
+            self._announce_desktop_step("browse_feed", "Navigating to home feed",
+                                        message_key="agentStatusNavigating")
+            self._send_status("navigating", "Navigating to home feed…", message_key="agentStatusNavigating")
             if not self._navigate_to_feed():
-                return self._fail("Could not navigate to home feed")
+                return self._fail("Could not navigate to home feed", message_key="agentStatusErrNoFeed")
 
             time.sleep(2)
 
             # Step 4: Main browsing loop
-            self._send_status("running", "Taktik Agent is active")
+            self._send_status("running", "Taktik Agent is active", message_key="agentStatusActive")
             self._run_feed_loop()
 
             # Finalize
             self._context.update_stats(self.stats)
-            self._send_status("completed", "Session completed", stats=self.stats)
+            self._send_status("completed", "Session completed", stats=self.stats,
+                              message_key="agentStatusCompleted")
             return {"success": True, "stats": self.stats}
 
         except Exception as exc:
@@ -213,6 +216,7 @@ class TaktikAgentWorkflow:
                 "account_detected",
                 f"Account @{self._bot_username} detected",
                 stats={"username": self._bot_username, "niche": _get(account_data, "niche", "")},
+                message_key="agentStatusAccountDetected",
             )
             return True
 
@@ -257,8 +261,11 @@ class TaktikAgentWorkflow:
                 f"{self._agent_plan.plan_id} ({len(self._agent_plan.steps)} step(s))"
             )
 
-    def _announce_desktop_step(self, tool: str, fallback_message: str) -> None:
-        """Emit the desktop-planned next step when available."""
+    def _announce_desktop_step(self, tool: str, fallback_message: str, message_key: str = None) -> None:
+        """Emit the desktop-planned next step when available.
+
+        The desktop-provided step message is already localized (no key); only the English
+        fallback carries `message_key` so the desktop can localize it too."""
         context = self._desktop_orchestration_context
         steps = context.get("nextSteps") if isinstance(context, dict) else None
         if isinstance(steps, list):
@@ -270,7 +277,7 @@ class TaktikAgentWorkflow:
                         stats={"tool": tool, "source": context.get("source") or "desktop"},
                     )
                     return
-        self._send_status("planning", fallback_message, stats={"tool": tool})
+        self._send_status("planning", fallback_message, stats={"tool": tool}, message_key=message_key)
 
     def _load_agent_plan(self, config: Dict[str, Any]) -> Optional[AgentPlan]:
         """Parse an optional frontend/CLI AgentPlan payload."""
@@ -838,12 +845,16 @@ class TaktikAgentWorkflow:
     # IPC helpers
     # ------------------------------------------------------------------
 
-    def _send_status(self, status: str, message: str = "", stats: dict = None):
+    def _send_status(self, status: str, message: str = "", stats: dict = None,
+                     message_key: str = None):
         if self.ipc:
-            self.ipc.agent_status(status=status, message=message, stats=stats or self.stats)
+            self.ipc.agent_status(status=status, message=message, stats=stats or self.stats,
+                                  message_key=message_key)
 
-    def _fail(self, error: str) -> Dict[str, Any]:
-        self._send_status("error", error)
+    def _fail(self, error: str, message_key: str = None) -> Dict[str, Any]:
+        # `error` stays as the English fallback / machine error; `message_key` (when the failure is a
+        # fixed, known one) lets the desktop show it in the app language.
+        self._send_status("error", error, message_key=message_key)
         return {"success": False, "error": error, "stats": self.stats}
 
 
