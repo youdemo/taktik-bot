@@ -1,0 +1,77 @@
+"""Shared text primitives.
+
+`detect_text_language` — a deterministic, dependency-free FR/EN language detector for short
+social-media prose (post captions, comments, bios). It exists because the vision model's guess of
+a post's language is unreliable (a French post whose image carries stylised English design text
+gets misread as English), whereas the author's CAPTION is ground truth and right there in the UI.
+
+Scope: reliably tells French from English and returns None when unsure (any other language, or too
+little signal) so the caller can fall back to another signal. Not a general N-language classifier —
+FR/EN is what the comment pipeline needs; extend the word sets to add a language.
+"""
+
+import re
+from typing import Optional
+
+# French letters with diacritics — an extremely strong French signal (English prose essentially
+# never uses them outside rare loanwords). Weighted heavily below.
+_FR_DIACRITICS = "àâäçéèêëîïôöùûüÿœæ"
+
+# Discriminative function words. Kept to words that are FREQUENT and (mostly) unique to one of the
+# two languages, so a handful of them in a caption tips the balance reliably. Overlap between the
+# two sets is avoided on purpose.
+_FR_WORDS = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "et", "ou", "où", "au", "aux",
+    "pour", "avec", "dans", "sur", "sous", "par", "sans", "chez", "mais", "donc",
+    "ne", "pas", "plus", "très", "trop", "ce", "cette", "ces", "cet", "qui", "que",
+    "quoi", "dont", "vous", "nous", "je", "tu", "il", "elle", "ils", "elles", "on",
+    "se", "sa", "son", "ses", "leur", "leurs", "mon", "ma", "mes", "ton", "ta", "tes",
+    "notre", "votre", "vos", "nos", "est", "sont", "être", "avoir", "fait", "faire",
+    "comme", "aussi", "bien", "tout", "tous", "toute", "toutes", "deux", "trois",
+    "venez", "voir", "revoir", "découvrir", "moi", "toi", "oui", "merci", "bonjour",
+    "salut", "alors", "encore", "déjà", "ici", "là", "vraiment", "toujours", "jamais",
+    "parce", "quand", "chaque", "notamment", "cœur",
+}
+
+_EN_WORDS = {
+    "the", "a", "an", "of", "and", "or", "to", "for", "with", "from", "at", "by",
+    "is", "are", "was", "were", "be", "been", "being", "this", "that", "these",
+    "those", "you", "we", "they", "he", "she", "it", "my", "your", "our", "their",
+    "his", "her", "its", "so", "but", "not", "all", "more", "what", "which", "who",
+    "when", "where", "how", "some", "any", "no", "yes", "thanks", "hello", "hi",
+    "very", "just", "like", "love", "wish", "could", "would", "should", "can",
+    "both", "sounds", "fun", "amazing", "beautiful", "about", "into", "over",
+    "really", "always", "never", "here", "there", "because",
+}
+
+_WORD_RE = re.compile(r"[a-zàâäçéèêëîïôöùûüÿœæ']+", re.IGNORECASE)
+
+
+def detect_text_language(text: Optional[str]) -> Optional[str]:
+    """Return 'fr' or 'en' when the text is confidently one of them, else None.
+
+    Deterministic: diacritics + discriminative stop-word frequency. Returns None (rather than
+    guessing) on too-short or ambiguous input, or any language other than FR/EN — the caller then
+    keeps its own fallback (the vision guess, or the account's base language).
+    """
+    if not text:
+        return None
+    lowered = text.lower()
+    words = _WORD_RE.findall(lowered)
+    if len(words) < 2:
+        return None
+
+    fr_hits = sum(1 for w in words if w in _FR_WORDS)
+    en_hits = sum(1 for w in words if w in _EN_WORDS)
+    fr_diacritics = sum(1 for ch in lowered if ch in _FR_DIACRITICS)
+
+    # Diacritics count strongly toward French; word hits count 1 each.
+    fr_score = fr_hits + 1.5 * fr_diacritics
+    en_score = float(en_hits)
+
+    # Require a real signal AND a clear margin, otherwise stay undecided (None).
+    if fr_score >= 2 and fr_score > en_score * 1.5:
+        return "fr"
+    if en_score >= 2 and en_score > fr_score * 1.5:
+        return "en"
+    return None

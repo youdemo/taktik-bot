@@ -4,6 +4,7 @@ import os
 import tempfile
 from typing import Any, Callable, Mapping
 
+from taktik.core.shared.text import detect_text_language
 from taktik.core.social_media.instagram.actions.core.ipc.emitter import IPCEmitter
 from taktik.core.social_media.instagram.ui.selectors.surfaces.post import (
     POST_DETAIL_SELECTORS,
@@ -223,6 +224,20 @@ def install_instagram_ai_hooks(
                     if not post_desc and not post_caption:
                         log("info", f"No post context for @{username} (no vision description, no caption), skipping comment (AI mode)")
                         return False
+
+                    # The author's CAPTION is ground truth for the post's language. The vision model's
+                    # guess is unreliable — a French post whose image carries stylised English design
+                    # text ("RETRAITE HOLISTIQUE") gets misread as English, which then made a French
+                    # account comment in English. When the caption confidently detects a language, it
+                    # OVERRIDES the vision guess (falls back to the vision guess only if the caption is
+                    # empty/too short/ambiguous).
+                    caption_lang = detect_text_language(post_caption)
+                    if caption_lang:
+                        prior = _detect_language_code(str(post_language).strip().lower()) if post_language else None
+                        if prior and prior != caption_lang:
+                            log("info", f"@{username}: post language from caption = '{caption_lang}' "
+                                        f"(overrides vision guess '{post_language}')")
+                        post_language = caption_lang
 
                     # The comment's BASE language is the ACCOUNT's preferred language (the operated
                     # account can target an audience different from the operator's app UI language),
