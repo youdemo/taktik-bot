@@ -8,8 +8,49 @@ from loguru import logger
 from ...core.base_action import BaseAction
 from ....ui.selectors.shell.navigation import NAVIGATION_SELECTORS
 from ....ui.selectors.surfaces.profile import PROFILE_SELECTORS
+from ....ui.selectors.surfaces.story_viewer import STORY_SELECTORS
 from taktik.core.clone import get_active_package
 from taktik.core.shared.behavior.gesture_primitives import human_hswipe_raw
+
+
+def _safe_story_advance_zone(screen_width: int, screen_height: int, sticker: Optional[dict]):
+    """Return the (x0, y0, x1, y1) tap zone to ADVANCE a story, avoiding an interactive sticker.
+
+    The advance tap lives on the right side, in the mid band (0.30–0.70 h) so it never hits the
+    close button (top) or the reply/like toolbar (bottom). When an interactive sticker (countdown,
+    poll…) overlaps that band, tapping it would open a blocking consumption sheet — so we pick the
+    largest safe sub-band ABOVE or BELOW the sticker, else a sliver to its RIGHT, else a small
+    upper-right corner. Pure geometry (no device I/O) so it is unit-tested. `sticker` is a bounds
+    dict {left,top,right,bottom} or None."""
+    zx0, zy0 = int(screen_width * 0.62), int(screen_height * 0.30)
+    zx1, zy1 = int(screen_width * 0.88), int(screen_height * 0.70)
+    if not sticker:
+        return zx0, zy0, zx1, zy1
+
+    margin = int(screen_height * 0.02)
+    st_top = sticker.get("top", 0) - margin
+    st_bottom = sticker.get("bottom", 0) + margin
+    st_right = sticker.get("right", 0)
+
+    # No vertical overlap with the band → the default zone is already clear.
+    if st_bottom <= zy0 or st_top >= zy1:
+        return zx0, zy0, zx1, zy1
+
+    min_band = int(screen_height * 0.05)
+    above_h = min(zy1, st_top) - zy0
+    below_h = zy1 - max(zy0, st_bottom)
+    if above_h >= below_h and above_h >= min_band:
+        return zx0, zy0, zx1, min(zy1, st_top)
+    if below_h >= min_band:
+        return zx0, max(zy0, st_bottom), zx1, zy1
+
+    # No safe band above/below → tap to the RIGHT of the sticker if there is room.
+    right_x0 = min(st_right + int(screen_width * 0.01), screen_width - int(screen_width * 0.03))
+    if screen_width - right_x0 >= int(screen_width * 0.04):
+        return right_x0, zy0, int(screen_width * 0.97), zy1
+
+    # Last resort: a small upper-right corner (below the close button, above most stickers).
+    return int(screen_width * 0.80), int(screen_height * 0.22), int(screen_width * 0.90), int(screen_height * 0.27)
 
 
 class SearchNavigationMixin(BaseAction):
@@ -296,21 +337,40 @@ class SearchNavigationMixin(BaseAction):
             self.logger.error(f"Error navigating to next post: {e}")
             return False
 
+    def _first_interactive_sticker_bounds(self) -> Optional[dict]:
+        """Bounds of the first interactive story sticker (countdown, poll…) on screen, else None.
+
+        These stickers open a blocking consumption sheet when tapped, so the advance tap must avoid
+        them. Never raises."""
+        try:
+            for selector in STORY_SELECTORS.interactive_sticker_selectors:
+                el = self.device.xpath(selector)
+                if el.exists:
+                    bounds = el.info.get('bounds', {}) if hasattr(el, 'info') else {}
+                    if bounds and bounds.get('right', 0) > bounds.get('left', 0):
+                        return bounds
+        except Exception:
+            pass
+        return None
+
     def navigate_to_next_story(self) -> bool:
         try:
             screen_width = self.device.info.get('displayWidth', 1080)
             screen_height = self.device.info.get('displayHeight', 1920)
-            
-            tap_x = int(screen_width * 0.75)
-            tap_y = int(screen_height * 0.5)
 
-            # Human-tap a varied point in the right-side advance zone (stays clearly on
-            # the right → next, never the same pixel); quick tap so a held press never
-            # pauses the story. Fall back to the fixed point if sampling fails.
-            right_zone = (
-                int(screen_width * 0.62), int(screen_height * 0.30),
-                int(screen_width * 0.88), int(screen_height * 0.70),
-            )
+            # Advance zone (right side, mid band) — computed to AVOID any interactive sticker
+            # (countdown, poll…) so a mis-tap never opens its blocking consumption sheet.
+            sticker = self._first_interactive_sticker_bounds()
+            if sticker:
+                self.logger.debug(f"🎯 Interactive story sticker detected {sticker} — steering advance tap around it")
+            zx0, zy0, zx1, zy1 = _safe_story_advance_zone(screen_width, screen_height, sticker)
+            right_zone = (zx0, zy0, zx1, zy1)
+
+            tap_x = (zx0 + zx1) // 2
+            tap_y = (zy0 + zy1) // 2
+
+            # Human-tap a varied point in the (sticker-safe) right-side advance zone; quick tap so a
+            # held press never pauses the story. Fall back to the zone centre if sampling fails.
             if not self.device.human_tap(right_zone, quick=True):
                 self.logger.debug(f"👆 Tap for next story: ({tap_x}, {tap_y})")
                 self.device.click(tap_x, tap_y)

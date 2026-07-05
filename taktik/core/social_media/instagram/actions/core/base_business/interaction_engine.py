@@ -300,6 +300,10 @@ class InteractionEngineMixin:
                         pass
 
                 has_next = self.nav_actions.navigate_to_next_story()
+                # Safety net: should an advance tap still land on an interactive sticker (countdown,
+                # poll…), it opens a consumption sheet OVER the story — back out of it so the story
+                # flow isn't blocked (the advance itself already steers around such stickers).
+                self._recover_from_blocking_modal(username, context="story")
                 if not has_next:
                     # Last slide: if likes were planned but none landed yet (story shorter
                     # than the sampled slots), leave a single like here so a planned

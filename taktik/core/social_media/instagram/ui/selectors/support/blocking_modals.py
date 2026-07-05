@@ -38,6 +38,15 @@ class BlockingModalSelectors:
                 "direct_external_share_container_view",
             ],
         },
+        {
+            # A mis-tap on a story countdown sticker opens this consumption sheet (real dump
+            # 2026-07-05) — it blocks the story flow until dismissed.
+            "name": "countdown_consumption_sheet",
+            "label": "Story countdown sheet",
+            "fragments": [
+                "countdown_consumption_sheet_container",
+            ],
+        },
     ])
 
     def signature_xpath_list(self, name: str) -> List[str]:

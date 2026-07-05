@@ -51,6 +51,21 @@ class StorySelectors:
         ' or contains(translate(@content-desc, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "highlight story")]'
     )
     
+    # === Stickers interactifs a EVITER quand on avance la story ===
+    # Un tap sur ces stickers ouvre une "consumption sheet" (compte a rebours, sondage, quiz,
+    # question, curseur, lien...) qui BLOQUE le defilement de la story. L'avance (tap cote droit)
+    # doit eviter leurs bounds. Base sur resource-id -> langue-independant. Seul `countdown_sticker`
+    # est confirme par un dump reel (2026-07-05) ; les autres sont les stickers interactifs IG connus
+    # (sans effet s'ils sont absents).
+    interactive_sticker_selectors: List[str] = field(default_factory=lambda: [
+        '//*[contains(@resource-id, "countdown_sticker")]',
+        '//*[contains(@resource-id, "poll_sticker")]',
+        '//*[contains(@resource-id, "quiz_sticker")]',
+        '//*[contains(@resource-id, "question_sticker")]',
+        '//*[contains(@resource-id, "slider_sticker")]',
+        '//*[contains(@resource-id, "story_link_sticker")]',
+    ])
+
     # === Navigation ===
     next_story: str = '//android.widget.FrameLayout[contains(@resource-id, "story_viewer_container")]//android.widget.ImageView[contains(@content-desc, "Suivant") or contains(@content-desc, "Next")]'
     close_story: str = '//android.widget.ImageView[contains(@content-desc, "Fermer") or contains(@content-desc, "Close")]'
