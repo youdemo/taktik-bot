@@ -727,16 +727,31 @@ class NotificationsEngagementWorkflow:
                     "message": "Follow requests screen not reachable"}
 
         accepted: List[str] = []
+        accepted_seen: set = set()  # lowercased usernames already tapped this batch
         self._notify("accept_all", "running", "Confirming follow requests")
         for _ in range(max_requests):
-            rows = self._wait_for_request_rows()  # rows render progressively after each accept
-            row = next((r for r in rows if r.get("accept")), None)
+            # A just-accepted row can still linger on screen for a moment (Instagram hasn't removed
+            # it from the list yet) or, worse, its slot may now host a DIFFERENT actionable element
+            # our accept selector also matches (e.g. a post-accept "Message"/"Follow back" CTA in
+            # the same spot). NEVER re-tap a username already confirmed this batch (device: the same
+            # row was re-read ~10px apart and logged as 2 separate accepts for "amourlestyliste").
+            # A bounded re-poll (rows non-empty but only stale matches) gives a genuinely new
+            # request a moment to render before we give up on the batch.
+            row = None
+            for _attempt in range(3):
+                rows = self._wait_for_request_rows()  # rows render progressively after each accept
+                row = next((r for r in rows if r.get("accept")
+                           and (r["username"] or "").strip().lower() not in accepted_seen), None)
+                if row or not rows:
+                    break
+                time.sleep(0.8)
             if not row:
                 break
             username = row["username"]
             if not self._tap_point(row["accept"], f"accept {username}"):
                 break
             accepted.append(username)
+            accepted_seen.add(username.strip().lower())
             self._notify("accept_all", "running", username, username=username,
                          accepted_count=len(accepted))
             time.sleep(random.uniform(*delay_range))
