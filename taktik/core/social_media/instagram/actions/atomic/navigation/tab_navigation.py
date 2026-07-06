@@ -46,6 +46,20 @@ class TabNavigationMixin(BaseAction):
         return self._is_home_screen()
     
     def navigate_to_search(self) -> bool:
+        if self._navigate_to_tab(self.selectors.search_tab, "search screen", "🔍", self._is_search_screen):
+            return True
+
+        # The search tab lives in the BOTTOM NAV BAR. If we're parked on a fullscreen surface that
+        # hides it — a reel/clips viewer, an open post, a modal, the keyboard — the tap finds nothing
+        # and EVERY hashtag iteration loops forever on "Cannot navigate to search screen" (device
+        # case: 0 interactions for minutes, the workflow effectively dead). Self-heal like
+        # navigate_to_home: get back to a known state (home feed, where the nav bar exists) then
+        # retry the tab once. navigate_to_home already backs out incrementally without leaving the
+        # app; if a stray back dropped us to the launcher, bring Instagram back to the foreground first.
+        self.logger.warning("🔍 Search tab not found — restoring a known state (home) before retrying")
+        if not self._is_instagram_open():
+            self._open_instagram()
+        self.navigate_to_home()
         return self._navigate_to_tab(self.selectors.search_tab, "search screen", "🔍", self._is_search_screen)
     
     def navigate_to_profile_tab(self) -> bool:
