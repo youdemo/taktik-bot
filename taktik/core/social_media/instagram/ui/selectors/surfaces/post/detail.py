@@ -227,6 +227,13 @@ class PostSelectors:
     
     _back_button_selectors_base: List[str] = field(default_factory=lambda: [
         '//android.widget.ImageView[@resource-id="com.instagram.android:id/action_bar_button_back"]',
+        # Reels/clips viewer: the top-left Back lives in the clips action bar (there is NO
+        # action_bar_button_back there). Structural (resource-id scoped) so it is language-
+        # independent — its content-desc is "Back"/"Retour" depending on locale. It only exists on
+        # the FIRST reel (the one just opened from the grid); once you scroll to another reel the
+        # container is emptied and the button is gone — which is exactly why a reel must be exited
+        # BEFORE scrolling, never navigated in-viewer.
+        '//*[@resource-id="com.instagram.android:id/clips_action_bar_start_action_buttons"]//android.widget.ImageView',
     ])
 
     @property

@@ -186,7 +186,8 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                 stats['posts_seen'] = posts_seen
                 
                 time.sleep(0.3)
-                
+
+                is_reel = False  # default so the reel-aware navigation below is safe even if extraction throws
                 try:
                     is_reel = self._is_current_post_reel()
                     current_likes = self._extract_likes_count_from_ui(is_reel=is_reel)
@@ -214,7 +215,7 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                             break
                         
                         if posts_seen < max_posts_to_see:
-                            if not self._navigate_to_next_post_in_sequence():
+                            if not self._advance_or_exit_reel(is_reel, total_posts_on_profile, username):
                                 break
                         continue
                     
@@ -263,16 +264,28 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                     self.logger.debug(f"Post #{posts_seen} not engaged")
                 
                 if posts_seen < max_posts_to_see:
+                    if is_reel:
+                        # This post is a REEL: advancing in-viewer would scroll the full-screen
+                        # reels FEED (not the profile's posts), and after the first reel the top-left
+                        # Back button disappears — trapping the run in an endless reels feed with no
+                        # way out (device: bot stuck, every later workflow failed to navigate). Exit
+                        # to the grid instead — the Back button is still present on this freshly
+                        # opened reel — and open another post. Stop if we can't exit cleanly.
+                        if not self._return_to_grid_and_open_another_post(
+                            total_posts_on_profile, username=username
+                        ):
+                            self.logger.debug("Reel exit to grid failed — stopping to avoid getting trapped in the reels feed")
+                            break
+                        time.sleep(content_dwell(0))   # glance at the freshly opened post
                     # Vary the navigation like a human: usually advance within the post viewer,
                     # but sometimes go BACK to the grid and open a different post instead (only
                     # once we've already liked one and on a big-enough profile, so it looks
                     # natural). Falls back to the in-viewer scroll if the grid-return fails.
-                    use_grid = (
+                    elif (
                         posts_liked >= 1
                         and total_posts_on_profile >= _GRID_RETURN_MIN_POSTS
                         and random.random() < _GRID_RETURN_PROB
-                    )
-                    if use_grid and self._return_to_grid_and_open_another_post(
+                    ) and self._return_to_grid_and_open_another_post(
                         total_posts_on_profile, username=username
                     ):
                         time.sleep(content_dwell(0))   # glance at the freshly opened post

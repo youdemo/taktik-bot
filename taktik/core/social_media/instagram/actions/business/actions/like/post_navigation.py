@@ -355,6 +355,19 @@ class PostNavigationMixin:
             self.logger.error(f"Error navigating to next post: {e}")
             return False
 
+    def _advance_or_exit_reel(self, is_reel: bool, total_posts_on_profile: int = 0, username: str = None) -> bool:
+        """Advance to the next post — but a REEL must be handled specially.
+
+        A reel opened from the grid drops us in the full-screen clips viewer, where the vertical
+        advance (_navigate_to_next_post_in_sequence) scrolls the REELS FEED instead of the profile's
+        posts, and after the first reel the top-left Back button disappears, trapping the run with no
+        way out (device bug). So for a reel we EXIT to the grid (Back still present on this first
+        reel) and open another post; for a normal post we advance in-viewer as before. Returns False
+        when we couldn't advance (the caller should stop the scroll)."""
+        if is_reel:
+            return self._return_to_grid_and_open_another_post(total_posts_on_profile, username=username)
+        return self._navigate_to_next_post_in_sequence()
+
     def _return_to_grid_and_open_another_post(self, posts_count: int = 0, username: str = None) -> bool:
         """Alternative human navigation: instead of swiping through the post viewer, go BACK to
         the profile grid, (re-)scroll it and open ANOTHER post — the way a person sometimes
