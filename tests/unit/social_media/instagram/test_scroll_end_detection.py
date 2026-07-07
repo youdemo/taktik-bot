@@ -40,3 +40,25 @@ def test_discovering_new_usernames_keeps_going():
     for batch in (["a", "b"], ["c", "d"], ["e", "f"], ["g", "h"], ["i", "j"], ["k", "l"]):
         d.notify_new_page(batch)
     assert d.is_the_end() is False
+
+
+def test_reworking_the_same_visible_page_must_not_end_the_list():
+    """Regression (virgileimages run: stopped at 24/472 followers, scroll was fine).
+
+    The direct-followers loop works a visible page ONE follower at a time (process one -> break ->
+    re-scan the SAME visible page -> process the next). If every one of those identical re-scans is
+    fed to the detector, the "same page N times" counter trips is_the_end() after 5 re-scans of a
+    single page even though the scroll never actually got stuck. The fix notifies the detector ONLY
+    once a page is exhausted, so re-scans of a page still being worked never reach it. This models
+    that discipline: one notify per DISTINCT exhausted page keeps the list alive across many pages,
+    exactly where the old every-iteration notify would have falsely ended it.
+    """
+    d = ScrollEndDetector(repeats_to_end=5)
+    # 8 distinct exhausted pages, each notified once (the loop internally re-scanned each ~9 times
+    # while interacting, but the detector only ever sees each page a single time).
+    for page in (
+        ["a", "b"], ["c", "d"], ["e", "f"], ["g", "h"],
+        ["i", "j"], ["k", "l"], ["m", "n"], ["o", "p"],
+    ):
+        d.notify_new_page(page)
+    assert d.is_the_end() is False

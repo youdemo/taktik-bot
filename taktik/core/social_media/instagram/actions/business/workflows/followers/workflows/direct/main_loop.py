@@ -310,9 +310,18 @@ class FollowerDirectWorkflowMixin(DirectNavigationMixin, DirectProfileProcessing
                     # Après interaction, re-scanner la liste
                     break
                 
-                # Notifier le scroll detector des usernames vus
+                # Notify the scroll-end detector ONLY when the visible page is exhausted
+                # (every follower on it already processed this session). While a fresh follower
+                # remains, we deliberately re-scan the SAME page (process one -> break -> re-scan),
+                # so feeding those identical re-scans to the detector inflated its "same page N
+                # times in a row" counter (_duplicate_page_count) and tripped a FALSE end-of-list:
+                # a run stopping at 24/472 followers even though the scroll was advancing fine.
+                # The duplicate-page signal must mean "scrolled but nothing new appeared", never
+                # "haven't scrolled yet because the page is still being worked through". Gating on
+                # exhaustion (== right before we actually scroll) restores that meaning.
                 visible_usernames = [f['username'] for f in visible_followers]
-                scroll_detector.notify_new_page(visible_usernames, list(processed_usernames))
+                if new_usernames_found == 0:
+                    scroll_detector.notify_new_page(visible_usernames, list(processed_usernames))
                 
                 # Gestion du scroll et fin de liste
                 should_stop, stop_reason = self._handle_scroll_and_end_detection(
