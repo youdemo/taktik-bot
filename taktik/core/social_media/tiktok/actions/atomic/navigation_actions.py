@@ -32,16 +32,28 @@ class NavigationActions(SearchActions):
     
     def navigate_to_home(self) -> bool:
         """Navigate to Home feed (For You).
-        
+
         Uses resource-id mkq with content-desc "Home".
         """
         self.logger.info("🏠 Navigating to Home")
-        
+
         if self._find_and_click(self.navigation_selectors.home_tab, timeout=5):
             self._human_like_delay('navigation')
             self.logger.success("✅ Navigated to Home")
             return True
-        
+
+        # Fallback: the bottom nav bar can be hidden behind a fullscreen surface (a stuck
+        # profile screen, a popup) — back out incrementally and stop as soon as we're home,
+        # instead of giving up immediately (device: the hashtag workflow died here after a
+        # failed profile-fetch tap left the app off the bottom nav; every later
+        # navigate_to_home/open_search attempt then kept failing with no way to recover).
+        self.logger.debug("Fallback: using back button (incremental, stop at home)")
+        for _ in range(3):
+            self._press_back()
+            if self._element_exists(self.navigation_selectors.home_tab_selected, timeout=1):
+                self.logger.success("✅ Navigated to Home (via back)")
+                return True
+
         self.logger.warning("❌ Failed to navigate to Home")
         return False
     

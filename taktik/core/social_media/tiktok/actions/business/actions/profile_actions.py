@@ -184,14 +184,19 @@ class ProfileActions(BaseAction):
             TikTokProfileInfo if successful, None otherwise.
         """
         if not self.navigate_to_own_profile():
+            # The tap may still have landed somewhere off Home even though verification
+            # failed (device: this left the app stuck with no bottom nav visible, so every
+            # later navigate_to_home/open_search attempt kept failing and the workflow died
+            # with 0 videos). Always try to recover to Home before giving up, not just on
+            # the success path below.
+            self.navigate_to_home()
             return None
-        
+
         self._random_sleep(1.0, 1.5)
         profile_info = self.get_own_profile_info()
-        
+
         # Navigate back to Home so the workflow can continue
-        if profile_info:
-            self._random_sleep(0.5, 1.0)
-            self.navigate_to_home()
-        
+        self._random_sleep(0.5, 1.0)
+        self.navigate_to_home()
+
         return profile_info
