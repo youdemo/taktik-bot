@@ -4,6 +4,8 @@ import random
 
 from taktik.core.shared.behavior.interaction_plan import (
     InteractionPlan,
+    RelevanceGating,
+    apply_relevance_gating,
     proportional_like_cap,
     sample_like_target,
     sample_story_like_slot,
@@ -11,6 +13,16 @@ from taktik.core.shared.behavior.interaction_plan import (
     sample_story_like_slots,
     build_interaction_plan,
 )
+
+
+def _plan(**over):
+    base = dict(
+        like_target=3, do_follow=True, do_comment=True, max_comments=1,
+        do_watch_story=True, story_like_slot=-1, max_story_slides=3,
+        do_story_like=False, max_story_likes=3,
+    )
+    base.update(over)
+    return InteractionPlan(**base)
 
 
 # ─── sample_like_target ──────────────────────────────────────────────────────
@@ -176,3 +188,85 @@ def test_plan_is_dataclass():
     p = build_interaction_plan(_cfg(), [], rng=random.Random(1))
     assert isinstance(p, InteractionPlan)
     assert p.like_target == 0 and p.story_like_slot == -1 and p.do_watch_story is False
+
+
+# ─── apply_relevance_gating ──────────────────────────────────────────────────
+
+def test_gating_disabled_is_passthrough():
+    plan = _plan()
+    g = apply_relevance_gating(plan, {"relevant": False, "score": 0.1}, {"enabled": False})
+    assert g.active is False and g.skip is False and g.plan is plan
+
+
+def test_gating_no_verdict_fails_open():
+    plan = _plan()
+    g = apply_relevance_gating(plan, None, {"enabled": True})
+    assert g.active is False and g.skip is False and g.plan is plan
+
+
+def test_gating_skips_irrelevant_profile():
+    plan = _plan()
+    g = apply_relevance_gating(plan, {"relevant": False, "score": 0.2}, {"enabled": True})
+    assert g.active and g.would_skip and g.skip and g.plan is plan  # plan untouched, caller skips
+
+
+def test_gating_skips_below_min_score():
+    plan = _plan()
+    g = apply_relevance_gating(
+        plan, {"relevant": True, "score": 0.3, "follow": True, "like": True},
+        {"enabled": True, "minScore": 0.5},
+    )
+    assert g.skip is True
+
+
+def test_gating_keeps_relevant_above_threshold():
+    plan = _plan()
+    g = apply_relevance_gating(
+        plan, {"relevant": True, "score": 0.8, "follow": True, "comment": True, "like": True},
+        {"enabled": True, "minScore": 0.5},
+    )
+    assert g.would_skip is False and g.skip is False and not g.masked
+
+
+def test_gating_masks_intents_the_verdict_advises_against():
+    plan = _plan(like_target=3, do_follow=True, do_comment=True)
+    g = apply_relevance_gating(
+        plan,
+        {"relevant": True, "score": 0.9, "follow": False, "comment": True, "like": False},
+        {"enabled": True, "minScore": 0.4},
+    )
+    assert set(g.masked) == {"follow", "like"}
+    assert g.plan.do_follow is False and g.plan.like_target == 0
+    assert g.plan.do_comment is True  # the one the verdict endorsed survives
+
+
+def test_gating_never_adds_intents():
+    # Verdict says follow, but the plan never planned to follow → stays False (upper bound owned
+    # by probabilities/quotas, the gate only ever REMOVES).
+    plan = _plan(do_follow=False, do_comment=False, like_target=0)
+    g = apply_relevance_gating(
+        plan, {"relevant": True, "score": 0.9, "follow": True, "comment": True, "like": True},
+        {"enabled": True},
+    )
+    assert g.plan.do_follow is False and g.plan.do_comment is False and g.plan.like_target == 0
+
+
+def test_gating_dry_run_reports_but_changes_nothing():
+    plan = _plan()
+    g = apply_relevance_gating(
+        plan, {"relevant": False, "score": 0.1},
+        {"enabled": True, "dryRun": True},
+    )
+    assert g.would_skip is True   # would have skipped
+    assert g.skip is False        # but doesn't
+    assert g.plan is plan         # and leaves the plan intact
+
+
+def test_gating_dry_run_reports_masking_without_applying():
+    plan = _plan(do_follow=True, like_target=2)
+    g = apply_relevance_gating(
+        plan, {"relevant": True, "score": 0.9, "follow": False, "like": False, "comment": True},
+        {"enabled": True, "dryRun": True},
+    )
+    assert set(g.masked) == {"follow", "like"}
+    assert g.plan is plan and g.plan.do_follow is True and g.plan.like_target == 2

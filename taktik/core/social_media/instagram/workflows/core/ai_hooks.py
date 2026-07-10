@@ -345,6 +345,11 @@ def install_instagram_ai_hooks(
             account_niche = ai_config.get("accountNiche") or ai_config.get("account_niche")
             account_sub_niche = ai_config.get("accountSubNiche") or ai_config.get("account_sub_niche")
 
+            # Opt-in relevance gating (front-owned settings). Rides on profile_data next to the
+            # verdict so the interaction engine can enforce it WITHOUT any config threading —
+            # {enabled, minScore, maskIntents, dryRun}. Absent/disabled → engine passthrough.
+            relevance_gating = ai_config.get("relevanceGating") or ai_config.get("relevance_gating")
+
             def ai_perform_interactions(self_engine, username, config, profile_data=None):
                 # Reuse an existing AI qualification instead of re-paying for the vision classification:
                 # if this profile was already scraped + AI-qualified (its niche is in the DB), skip the
@@ -401,13 +406,17 @@ def install_instagram_ai_hooks(
                                 f"{classification.get('niche', '?')}"
                             ),
                         )
-                        # Lot 1: surface the engagement verdict on profile_data so the engine
-                        # can later GATE follow/comment with it (no decision change yet — we log
-                        # it and compare to what the random ratio would do, to vet quality first).
+                        # Surface the engagement verdict on profile_data. Always displayed as the
+                        # decision trace; when relevanceGating.enabled, the interaction engine
+                        # ENFORCES it (skip / mask intents) — otherwise it stays observation-only.
                         engagement = classification.get("engagement")
                         if isinstance(engagement, dict):
                             if isinstance(profile_data, dict):
                                 profile_data["ai_engagement"] = engagement
+                                # Hand the gating settings to the engine alongside the verdict
+                                # (both consumed in _perform_interactions_on_profile).
+                                if relevance_gating:
+                                    profile_data["ai_relevance_gating"] = relevance_gating
                             would = []
                             if engagement.get("follow"):
                                 would.append("follow")
@@ -477,6 +486,7 @@ def install_instagram_ai_hooks(
             "AI hooks installed: "
             f"smartComments={ai_config.get('smartComments')}, "
             f"profileAnalysis={ai_config.get('profileAnalysis')}, "
-            f"postAnalysis={ai_config.get('postAnalysis')}"
+            f"postAnalysis={ai_config.get('postAnalysis')}, "
+            f"relevanceGating={(ai_config.get('relevanceGating') or {}).get('enabled') if isinstance(ai_config.get('relevanceGating'), dict) else False}"
         ),
     )

@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 from ..ipc import IPCEmitter
 from taktik.core.database.instagram_workflow_state import InstagramWorkflowStateService
 from taktik.core.shared.behavior.interaction_plan import (
+    apply_relevance_gating,
     build_interaction_plan,
     sample_story_like_count,
     sample_story_like_slots,
@@ -53,6 +54,42 @@ class InteractionEngineMixin:
             plan = build_interaction_plan(config, interactions_to_do, posts_count=posts_count)
             self.logger.debug(f"🎯 Plan for @{username}: {interactions_to_do} → "
                               f"likes={plan.like_target}, story_slot={plan.story_like_slot}")
+
+            # === RELEVANCE GATING (opt-in) ===
+            # The AI engagement verdict + gating settings ride on profile_data (set by the
+            # profile-analysis hook). apply_relevance_gating decides whether to skip this
+            # profile entirely and/or mask planned intents the verdict advises against.
+            # Fail-open: no verdict/disabled → passthrough (today's behaviour). In dry-run it
+            # only REPORTS what it would do, so the operator can vet verdict quality first.
+            gate = apply_relevance_gating(
+                plan,
+                (profile_data or {}).get('ai_engagement'),
+                (profile_data or {}).get('ai_relevance_gating'),
+            )
+            if gate.active:
+                score_str = f"{gate.score:.2f}" if isinstance(gate.score, (int, float)) else "?"
+                if gate.would_skip:
+                    prefix = "[dry-run] " if gate.dry_run else ""
+                    self.logger.info(
+                        f"🛑 {prefix}Relevance gate @{username}: not worth engaging "
+                        f"(score {score_str}){' · ' + gate.reason if gate.reason else ''}"
+                    )
+                    emit_step("relevance_gate", action="skip", target=username,
+                              score=gate.score, dry_run=gate.dry_run, reason=gate.reason)
+                    IPCEmitter.emit_action('relevance_skip', username, {
+                        'score': gate.score, 'reason': gate.reason, 'dry_run': gate.dry_run,
+                    })
+                    if gate.skip:
+                        return result  # not relevant → skip the whole interaction phase
+                elif gate.masked:
+                    prefix = "[dry-run] " if gate.dry_run else ""
+                    self.logger.info(
+                        f"✂️ {prefix}Relevance gate @{username}: masking {', '.join(gate.masked)} "
+                        f"(score {score_str})"
+                    )
+                    emit_step("relevance_gate", action="mask", target=username,
+                              masked=list(gate.masked), dry_run=gate.dry_run)
+                plan = gate.plan  # enforced plan (unchanged in dry-run)
 
             # Detect the story ONCE on arrival, BEFORE announcing the plan: the profile header is
             # visible and its avatar content-desc carries the reliable "unseen story" / "non vue"

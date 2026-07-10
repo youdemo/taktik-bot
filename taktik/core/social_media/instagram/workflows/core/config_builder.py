@@ -375,5 +375,10 @@ def build_instagram_session_config_event(
             "profileAnalysis": ai_config.get("profileAnalysis", False),
             "postAnalysis": ai_config.get("postAnalysis", False),
         }
+        # Opt-in relevance gating (front-owned settings) — pass through verbatim so a
+        # scheduled run gates exactly like a manual one. Absent → engine passthrough.
+        relevance_gating = ai_config.get("relevanceGating") or ai_config.get("relevance_gating")
+        if isinstance(relevance_gating, dict):
+            payload["ai"]["relevanceGating"] = relevance_gating
 
     return payload

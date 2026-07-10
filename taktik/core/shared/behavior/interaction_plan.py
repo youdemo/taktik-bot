@@ -153,8 +153,105 @@ def build_interaction_plan(config: dict, interactions_to_do, *, posts_count=None
     )
 
 
+@dataclass
+class RelevanceGating:
+    """Outcome of applying the AI engagement verdict to a resolved plan.
+
+    `active` is False when gating is disabled OR no verdict is available (cached
+    qualification path, AI error) — the gate is FAIL-OPEN by design: a missing verdict
+    never blocks an interaction. In dry-run, `would_skip`/`masked` report what enforcement
+    WOULD have done while `skip` stays False and `plan` stays untouched, so an operator can
+    vet the verdict quality on real runs before letting it decide.
+    """
+
+    active: bool
+    dry_run: bool
+    would_skip: bool
+    skip: bool
+    masked: tuple
+    plan: InteractionPlan
+    score: object
+    reason: str
+
+
+def apply_relevance_gating(plan: InteractionPlan, engagement, settings) -> RelevanceGating:
+    """Turn the AI engagement verdict into a DECISION on the per-profile plan.
+
+    The verdict (`engagement`, from classify_profile_niche's engagement block:
+    {relevant, follow, comment, like, score 0-1, reason}) has been computed and displayed
+    for months without gating anything ("no decision change yet"). This is the opt-in gate:
+
+    - skip: the profile is not worth engaging (`relevant` False, or `score` below
+      `minScore`) → the caller skips the whole interaction phase;
+    - mask (`maskIntents`, default on): for profiles that pass, the verdict's follow/
+      comment/like booleans REMOVE the corresponding planned intents (never add any —
+      probabilities/quotas still own the upper bound);
+    - dry-run (`dryRun`): report, change nothing.
+
+    Pure and dependency-free, like the rest of this module.
+    """
+    passthrough = RelevanceGating(
+        active=False, dry_run=False, would_skip=False, skip=False,
+        masked=(), plan=plan, score=None, reason="",
+    )
+    if not isinstance(settings, dict) or not settings.get("enabled"):
+        return passthrough
+    if not isinstance(engagement, dict):
+        return passthrough  # fail-open: no verdict, nothing to decide with
+
+    try:
+        min_score = float(settings.get("minScore", 0.4))
+    except (TypeError, ValueError):
+        min_score = 0.4
+    dry_run = bool(settings.get("dryRun", False))
+    mask_intents = settings.get("maskIntents", True)
+
+    score = engagement.get("score")
+    numeric_score = score if isinstance(score, (int, float)) else None
+    reason = str(engagement.get("reason") or "")
+
+    would_skip = (not bool(engagement.get("relevant"))) or (
+        numeric_score is not None and numeric_score < min_score
+    )
+
+    masked = []
+    new_plan = plan
+    if not would_skip and mask_intents:
+        if plan.do_follow and not engagement.get("follow"):
+            masked.append("follow")
+        if plan.do_comment and not engagement.get("comment"):
+            masked.append("comment")
+        if plan.like_target > 0 and not engagement.get("like"):
+            masked.append("like")
+        if masked and not dry_run:
+            new_plan = InteractionPlan(
+                like_target=0 if "like" in masked else plan.like_target,
+                do_follow=plan.do_follow and "follow" not in masked,
+                do_comment=plan.do_comment and "comment" not in masked,
+                max_comments=plan.max_comments,
+                do_watch_story=plan.do_watch_story,
+                story_like_slot=plan.story_like_slot,
+                max_story_slides=plan.max_story_slides,
+                do_story_like=plan.do_story_like,
+                max_story_likes=plan.max_story_likes,
+            )
+
+    return RelevanceGating(
+        active=True,
+        dry_run=dry_run,
+        would_skip=would_skip,
+        skip=would_skip and not dry_run,
+        masked=tuple(masked),
+        plan=new_plan,
+        score=numeric_score,
+        reason=reason,
+    )
+
+
 __all__ = [
     "InteractionPlan",
+    "RelevanceGating",
+    "apply_relevance_gating",
     "proportional_like_cap",
     "sample_like_target",
     "sample_story_like_slot",
