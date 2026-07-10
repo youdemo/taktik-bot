@@ -113,7 +113,10 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                 self.logger.warning(f"Stats NOT recorded - Reason: session_manager={self.session_manager}, posts_liked={posts_liked}")
             
             if posts_liked > 0:
-                self._record_action(username, 'LIKE', posts_liked)
+                # Batched DB write at end of profile — pass the real per-like times
+                # captured during the scroll so the rows don't all share this second.
+                self._record_action(username, 'LIKE', posts_liked,
+                                    timestamps=sequential_stats.get('like_times'))
             
             stats['success'] = stats['posts_liked'] > 0
             self.logger.info(f"Likes completed for @{username}: {stats['posts_liked']} posts liked")
@@ -143,7 +146,11 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
             'posts_seen': 0,
             'success': False,
             'errors': 0,
-            'method': 'sequential_scroll'
+            'method': 'sequential_scroll',
+            # Real time of each successful like, captured as it happens. The DB write is
+            # batched at the end of the profile (like_profile_posts), so without these
+            # every like of the batch would share one insert-time second.
+            'like_times': []
         }
         
         try:
@@ -256,6 +263,7 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                         if liked_ok:
                             posts_liked += 1
                             stats['posts_liked'] = posts_liked
+                            stats['like_times'].append(self._action_timestamp())
                             self.logger.success(f"Post #{posts_seen} liked ({posts_liked}/{max_likes})")
                         if commented_ok:
                             posts_commented += 1

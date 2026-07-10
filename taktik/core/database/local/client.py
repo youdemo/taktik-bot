@@ -165,7 +165,8 @@ class LocalDatabaseClient:
     def record_interaction(self, account_id: int, username: str = None,
                           target_username: str = None,
                           interaction_type: str = 'LIKE', success: bool = True,
-                          content: str = None, session_id: int = None) -> bool:
+                          content: str = None, session_id: int = None,
+                          interaction_time: str = None) -> bool:
         """Record an interaction to local database."""
         target = username or target_username
         if not target:
@@ -177,7 +178,8 @@ class LocalDatabaseClient:
             interaction_type=interaction_type,
             success=success,
             content=content,
-            session_id=session_id
+            session_id=session_id,
+            interaction_time=interaction_time
         )
     
     def log_interaction(self, account_id: int, profile_id: int, interaction_type: str,

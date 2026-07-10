@@ -305,11 +305,15 @@ class LocalDatabaseService:
     # INTERACTIONS (delegated to InteractionRepository)
     # ============================================
     
-    def record_interaction(self, account_id: int, target_username: str, 
+    def record_interaction(self, account_id: int, target_username: str,
                           interaction_type: str, success: bool = True,
-                          content: Optional[str] = None, 
-                          session_id: Optional[int] = None) -> bool:
-        """Record an interaction with a profile."""
+                          content: Optional[str] = None,
+                          session_id: Optional[int] = None,
+                          interaction_time: Optional[str] = None) -> bool:
+        """Record an interaction with a profile.
+
+        interaction_time (optional, UTC 'YYYY-MM-DD HH:MM:SS'): real moment of the
+        gesture, for callers that batch their DB writes after the fact."""
         try:
             profile_id, _ = self.get_or_create_profile({'username': target_username})
             interaction_id = self.interactions.record(
@@ -318,7 +322,8 @@ class LocalDatabaseService:
                 interaction_type=interaction_type,
                 success=success,
                 content=content,
-                session_id=session_id
+                session_id=session_id,
+                interaction_time=interaction_time
             )
             self.stats.increment_interaction(account_id, interaction_type)
             logger.debug(f"Recorded {interaction_type} on {target_username}")

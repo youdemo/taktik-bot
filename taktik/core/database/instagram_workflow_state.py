@@ -32,12 +32,25 @@ class InstagramWorkflowStateService:
         return get_db_service()
 
     @staticmethod
+    def utc_timestamp() -> str:
+        """UTC 'YYYY-MM-DD HH:MM:SS' — same format/zone as SQLite's datetime('now').
+
+        Capture it at the exact moment a gesture succeeds on the device, then pass the
+        collected list to record_individual_actions(timestamps=...) so batched DB writes
+        keep each action's REAL time instead of stamping the whole batch with one
+        insert-time second."""
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+    @staticmethod
     def record_individual_actions(
         username: str,
         action_type: str,
         count: int,
         account_id: Optional[int] = None,
         session_id: Optional[int] = None,
+        timestamps: Optional[list] = None,
     ) -> bool:
         if not account_id:
             log.warning(
@@ -49,9 +62,15 @@ class InstagramWorkflowStateService:
 
         success_count = 0
 
+        # One interaction_time per row when the caller captured the real gesture
+        # moments; otherwise NULL -> the repository stamps the insert time (legacy
+        # behaviour, still correct for count=1 calls made at the moment of the action).
+        times = list(timestamps) if timestamps else []
+        rows = [(times[i] if i < len(times) else None) for i in range(max(count, len(times)))]
+
         try:
             db = InstagramWorkflowStateService._db()
-            for _ in range(count):
+            for interaction_time in rows:
                 content = f"Action {action_type} sur profil @{username}"
                 success = db.record_interaction(
                     account_id=account_id,
@@ -60,6 +79,7 @@ class InstagramWorkflowStateService:
                     success=True,
                     content=content,
                     session_id=session_id,
+                    interaction_time=interaction_time,
                 )
                 if success:
                     success_count += 1

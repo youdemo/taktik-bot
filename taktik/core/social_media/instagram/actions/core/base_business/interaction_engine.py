@@ -281,6 +281,10 @@ class InteractionEngineMixin:
 
             stories_viewed = 0
             stories_liked = 0
+            # Real time of each watched/liked slide — the DB write is batched after the
+            # viewer closes, so without these all rows share one insert-time second.
+            watch_times = []
+            story_like_times = []
 
             for idx in range(max_stories):
                 if not self.detection_actions.is_story_viewer_open():
@@ -289,12 +293,14 @@ class InteractionEngineMixin:
                 view_duration = random.uniform(2, 5)
                 time.sleep(view_duration)
                 stories_viewed += 1
+                watch_times.append(self._action_timestamp())
 
                 # Like this slide if it's one of the planned (varied) slots.
                 if want_like and idx in like_slots:
                     try:
                         if self.click_actions.like_story():
                             stories_liked += 1
+                            story_like_times.append(self._action_timestamp())
                             self.logger.debug(f"Story slide #{idx + 1} liked")
                     except Exception:
                         pass
@@ -312,6 +318,7 @@ class InteractionEngineMixin:
                         try:
                             if self.click_actions.like_story():
                                 stories_liked += 1
+                                story_like_times.append(self._action_timestamp())
                                 self.logger.debug(f"Story last slide (#{idx + 1}) liked (fallback)")
                         except Exception:
                             pass
@@ -327,9 +334,9 @@ class InteractionEngineMixin:
             self._human_like_delay('navigation')
 
             if stories_viewed > 0:
-                self._record_action(username, 'STORY_WATCH', stories_viewed)
+                self._record_action(username, 'STORY_WATCH', stories_viewed, timestamps=watch_times)
                 if stories_liked > 0:
-                    self._record_action(username, 'STORY_LIKE', stories_liked)
+                    self._record_action(username, 'STORY_LIKE', stories_liked, timestamps=story_like_times)
                 self.logger.debug(f"{stories_viewed} stories viewed, {stories_liked} liked")
                 return {'stories_viewed': stories_viewed, 'stories_liked': stories_liked}
 

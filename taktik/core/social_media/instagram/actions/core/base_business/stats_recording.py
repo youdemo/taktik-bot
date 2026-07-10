@@ -9,41 +9,55 @@ from taktik.core.database.instagram_workflow_state import InstagramWorkflowState
 class StatsRecordingMixin:
     """Mixin: enregistrement actions DB + mise à jour stats + validation limites."""
 
-    def _record_action(self, username: str, action_type: str, count: int = 1) -> bool:
+    def _action_timestamp(self) -> str:
+        """UTC timestamp of NOW, to capture the real moment a gesture succeeds.
+
+        Batched recorders (likes at end of profile, stories at viewer close) collect one
+        of these per successful gesture and pass the list to _record_action — otherwise
+        every row of the batch shares the same insert-time second and per-action timing
+        stats are meaningless (observed: 2230/3022 prod interactions shared their second).
+        """
+        return InstagramWorkflowStateService.utc_timestamp()
+
+    def _record_action(self, username: str, action_type: str, count: int = 1,
+                       timestamps: Optional[List[str]] = None) -> bool:
         """
         Record an action in the database and emit IPC event for WorkflowAnalyzer.
         Centralized method to avoid code duplication across business actions.
-        
+
         Args:
             username: Target username
             action_type: Type of action (LIKE, FOLLOW, UNFOLLOW, STORY_WATCH, STORY_LIKE, COMMENT, etc.)
             count: Number of actions to record
-            
+            timestamps: Real per-gesture times (from _action_timestamp) for batched calls;
+                omit for count=1 calls made at the moment of the action
+
         Returns:
             True if recording succeeded, False otherwise
         """
         try:
             account_id = self._get_account_id()
             session_id = self._get_session_id()
-            
+
             if not account_id:
                 self.logger.warning(f"Cannot record {action_type} - no account_id")
                 return False
-            
+
             InstagramWorkflowStateService.record_individual_actions(
                 username=username,
                 action_type=action_type,
                 count=count,
                 account_id=account_id,
-                session_id=session_id
+                session_id=session_id,
+                timestamps=timestamps
             )
             self.logger.debug(f"✅ {count} {action_type} action(s) recorded for @{username}")
-            
+
             # Emit IPC event for WorkflowAnalyzer
             IPCEmitter.emit_action(action_type.lower(), username, {"count": count})
-            
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Failed to record {action_type} for @{username}: {e}")
             return False
@@ -72,10 +86,10 @@ class StatsRecordingMixin:
             self.stats_manager.increment('likes', interaction_result['likes'])
         if interaction_result.get('follows', 0) > 0:
             self.stats_manager.increment('follows', interaction_result['follows'])
-            InstagramWorkflowStateService.record_individual_actions(
-                username, 'FOLLOW', interaction_result['follows'],
-                account_id, session_id
-            )
+            # DB recording intentionally absent: the interaction engine's _do_follow
+            # already recorded the FOLLOW at the moment of the gesture. Recording it
+            # again here double-counted every follow made by the likers workflows
+            # (hashtag / post-URL), the only callers of this method.
         if interaction_result.get('stories', 0) > 0:
             self.stats_manager.increment('stories_watched', interaction_result['stories'])
         if interaction_result.get('stories_liked', 0) > 0:

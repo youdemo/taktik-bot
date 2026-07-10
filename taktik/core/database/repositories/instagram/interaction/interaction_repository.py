@@ -24,17 +24,25 @@ class InteractionRepository(BaseRepository):
         interaction_type: str,
         success: bool = True,
         content: Optional[str] = None,
-        session_id: Optional[int] = None
+        session_id: Optional[int] = None,
+        interaction_time: Optional[str] = None
     ) -> Optional[int]:
-        """Record a new interaction"""
+        """Record a new interaction.
+
+        interaction_time: UTC 'YYYY-MM-DD HH:MM:SS' of the REAL moment the action
+        happened on the device. Workflows that batch their recording at the end of a
+        profile (likes, stories) capture it as each gesture succeeds and pass it here —
+        otherwise every row of the batch would carry the same insert-time second,
+        which falsified any per-action timing analysis. NULL keeps the insert time.
+        """
         try:
             # Vague B Phase C: write directly to the unified `interactions` table
             # (legacy interaction_history dropped). sync_id generated for Turso.
             cursor = self.execute(
                 """INSERT INTO interactions
                    (platform, sync_id, session_id, account_id, profile_id, interaction_type, success, content, interaction_time, created_at)
-                   VALUES ('instagram', lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))""",
-                (session_id, account_id, profile_id, interaction_type.upper(), 1 if success else 0, content)
+                   VALUES ('instagram', lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))""",
+                (session_id, account_id, profile_id, interaction_type.upper(), 1 if success else 0, content, interaction_time)
             )
             return cursor.lastrowid
         except Exception as e:
