@@ -38,10 +38,14 @@ class InteractionRepository(BaseRepository):
         try:
             # Vague B Phase C: write directly to the unified `interactions` table
             # (legacy interaction_history dropped). sync_id generated for Turso.
+            # origin_device_id: scalar subquery on the single-row device_identity table — the
+            # row records which PC authored it, so the Turso sync can prove ownership instead
+            # of guessing from timestamps.
             cursor = self.execute(
                 """INSERT INTO interactions
-                   (platform, sync_id, session_id, account_id, profile_id, interaction_type, success, content, interaction_time, created_at)
-                   VALUES ('instagram', lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))""",
+                   (platform, sync_id, session_id, account_id, profile_id, interaction_type, success, content, interaction_time, created_at, origin_device_id)
+                   VALUES ('instagram', lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'),
+                           (SELECT device_id FROM device_identity WHERE id = 1))""",
                 (session_id, account_id, profile_id, interaction_type.upper(), 1 if success else 0, content, interaction_time)
             )
             return cursor.lastrowid

@@ -26,10 +26,13 @@ class TikTokInteractionRepositoryMixin:
         try:
             # Vague B Phase C: write directly to the unified `interactions` table
             # (legacy tiktok_interaction_history dropped). sync_id generated for Turso.
+            # origin_device_id: which PC authored the row (single-row device_identity table),
+            # so the Turso sync can prove ownership — mirrors the Instagram repository.
             cursor = self.execute(
                 """INSERT INTO interactions
-                   (platform, sync_id, session_id, account_id, profile_id, interaction_type, success, content, video_id, interaction_time, created_at)
-                   VALUES ('tiktok', lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))""",
+                   (platform, sync_id, session_id, account_id, profile_id, interaction_type, success, content, video_id, interaction_time, created_at, origin_device_id)
+                   VALUES ('tiktok', lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'),
+                           (SELECT device_id FROM device_identity WHERE id = 1))""",
                 (session_id, account_id, profile_id, interaction_type,
                  1 if success else 0, content, video_id)
             )

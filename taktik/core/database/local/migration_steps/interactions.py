@@ -37,6 +37,7 @@ def run_interactions_unification_migrations(cursor: sqlite3.Cursor) -> None:
             interaction_time TEXT DEFAULT (datetime('now')),
             created_at TEXT DEFAULT (datetime('now')),
             sync_id TEXT,
+            origin_device_id TEXT,
             UNIQUE(platform, legacy_id)
         )
     """)
@@ -44,6 +45,13 @@ def run_interactions_unification_migrations(cursor: sqlite3.Cursor) -> None:
     # sync (Phase B). Idempotent ALTER for bases created before this column.
     try:
         cursor.execute("ALTER TABLE interactions ADD COLUMN sync_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # Which device created the row (see migration_steps/device.py) — stamped at INSERT via a
+    # scalar subquery on device_identity; lets the Turso sync prove ownership exactly instead
+    # of guessing from timestamps.
+    try:
+        cursor.execute("ALTER TABLE interactions ADD COLUMN origin_device_id TEXT")
     except sqlite3.OperationalError:
         pass
     for stmt in (
