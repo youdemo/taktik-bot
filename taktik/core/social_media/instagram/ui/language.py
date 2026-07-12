@@ -177,11 +177,48 @@ _XPATH_TEXT_RE = re.compile(
 )
 
 # ──────────────────────────────────────────────────────────────
-# Detection probes — content-desc values to look for in UI dump
+# Detection probes — VISIBLE strings to look for in the UI dump
 # ──────────────────────────────────────────────────────────────
 
 _FR_PROBES = ["Accueil", "Rechercher", "Activité", "Retour", "Profil"]
 _EN_PROBES = ["Home", "Search", "Activity", "Back", "Profile"]
+
+# Only the VALUES of the visible-text attributes are scored. Never the raw XML: an Android dump
+# always carries English identifiers (`.../profile_tab`, `.../search_tab`, `..._back_button`,
+# `feed_tab`…), so probing the whole dump gave English a free, language-INDEPENDENT lead — every
+# EN probe matched some resource-id. Device proof (2026-07-12, Instagram in French): the raw-dump
+# scoring returned `en (FR=1.5, EN=2.5)`, the FR selectors were stripped, and `is_on_own_profile`
+# then hunted for "Edit profile" on a screen showing "Modifier le profil" → the bot could never
+# detect its own account and every session aborted.
+_VISIBLE_ATTR_RE = re.compile(r'(?:text|content-desc)="([^"]*)"')
+
+# A wrong language is WORSE than no language: it strips the correct selectors, whereas 'unknown'
+# keeps them all (overlay union). So we only commit when the winner is both solid and clearly
+# ahead; otherwise we stay 'unknown' and keep every locale.
+_MIN_SCORE = 2.0
+_MIN_MARGIN = 1.0
+
+
+def _visible_strings(xml: str) -> list:
+    """The text/content-desc values of the dump (what the USER can read)."""
+    return _VISIBLE_ATTR_RE.findall(xml or '')
+
+
+def _score_probes(probes, values) -> float:
+    """Score probes against visible strings: exact value = 1, whole-word match = 0.5.
+
+    Whole-word matching matters: 'Profil' (FR) must not score on 'Profile' (EN).
+    """
+    score = 0.0
+    for probe in probes:
+        needle = probe.strip().lower()
+        if any(v.strip().lower() == needle for v in values):
+            score += 1.0
+            continue
+        pattern = re.compile(rf'\b{re.escape(probe)}\b', re.IGNORECASE)
+        if any(pattern.search(v) for v in values):
+            score += 0.5
+    return score
 
 
 # ──────────────────────────────────────────────────────────────
@@ -233,30 +270,27 @@ def detect_language(device) -> str:
             _detected_lang = 'unknown'
             return _detected_lang
 
-        fr_score = 0
-        en_score = 0
+        # Score ONLY the visible strings (see _VISIBLE_ATTR_RE): scoring the raw dump let the
+        # always-English resource-ids inflate the English score on a French app.
+        values = _visible_strings(xml)
+        fr_score = _score_probes(_FR_PROBES, values)
+        en_score = _score_probes(_EN_PROBES, values)
 
-        for probe in _FR_PROBES:
-            if f'content-desc="{probe}"' in xml or f"content-desc='{probe}'" in xml:
-                fr_score += 1
-            # Also check as substring (contains)
-            elif probe.lower() in xml.lower():
-                fr_score += 0.5
-
-        for probe in _EN_PROBES:
-            if f'content-desc="{probe}"' in xml or f"content-desc='{probe}'" in xml:
-                en_score += 1
-            elif probe.lower() in xml.lower():
-                en_score += 0.5
-
-        if fr_score > en_score and fr_score >= 2:
+        if fr_score >= _MIN_SCORE and fr_score - en_score >= _MIN_MARGIN:
             _detected_lang = 'fr'
-        elif en_score > fr_score and en_score >= 2:
+        elif en_score >= _MIN_SCORE and en_score - fr_score >= _MIN_MARGIN:
             _detected_lang = 'en'
         else:
+            # Not confident enough. 'unknown' keeps EVERY locale's selectors (overlay union), so
+            # the bot still works; committing to the wrong language would strip the right ones.
             _detected_lang = 'unknown'
 
         log.info(f"🌐 Language detected: {_detected_lang} (FR={fr_score}, EN={en_score})")
+        if _detected_lang == 'unknown' and (fr_score or en_score):
+            log.info(
+                "🌐 Language undecided on this screen (too few visible words or scores too close) "
+                "— keeping all locales. It is re-detected on a richer screen."
+            )
         return _detected_lang
 
     except Exception as e:
