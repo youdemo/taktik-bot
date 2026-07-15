@@ -1,7 +1,7 @@
 import random
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 from loguru import logger
 
 from taktik.core.shared.behavior.policy import parse_behavior_policy
@@ -49,6 +49,13 @@ class SessionManager:
         self.pacing = resolve_pacing_profile(policy.profile_id if policy else None)
         if policy:
             log.info(f"Pacing profile: {self.pacing.profile_id}")
+
+        # Warmup guardrail caps injected by the desktop app (empty in standalone -> no enforcement).
+        self._warmup_policy = session_settings.get('warmup_policy') or {}
+        # Provider of TODAY's totals for this account (daily_stats), injected by the workflow which
+        # holds the account_id + DB. Kept as a callable so SessionManager never owns a repository
+        # (DI: the DB read is injected, not hidden here). None -> the daily-cap check is skipped.
+        self._daily_usage_provider: Optional[Callable[[], Dict[str, int]]] = None
 
     def should_continue(self) -> tuple[bool, str]:
         """Check if session should continue based on defined limits.
@@ -102,7 +109,65 @@ class SessionManager:
             log.info(f"🛑 Session ended: {reason}")
             return False, reason
 
+        # Garde-fou de montée en charge : plafond du JOUR pour ce compte (toutes sessions confondues).
+        #
+        # Les limites ci-dessus sont par-session et repartent de zéro à chaque run — c'est
+        # précisément ce qui a permis d'empiler sept sessions et de dépasser largement le jour 1.
+        # Ici on lit le total réel du jour (daily_stats, que le bot incrémente en direct) et on
+        # arrête net quand le budget est atteint. Défense en profondeur : le front bloque déjà le
+        # LANCEMENT, mais une seule longue session pourrait à elle seule crever le budget.
+        #
+        # N'agit que si le desktop a injecté des plafonds ET un fournisseur de totaux : en standalone
+        # les deux sont absents, le comportement est inchangé. Un plafond à 0 = pas de limite.
+        stop_reason = self._check_daily_budget()
+        if stop_reason:
+            log.info(f"🛑 Session ended: {stop_reason}")
+            return False, stop_reason
+
         return True, ""
+
+    def _check_daily_budget(self) -> str:
+        """Le budget quotidien est-il atteint ? Renvoie la raison d'arrêt, ou '' pour continuer.
+
+        Best-effort : une erreur de lecture ne doit pas tuer la session (le front reste le garde
+        principal). Le fournisseur lit les totaux du jour du compte à chaque appel — should_continue
+        n'est consulté qu'une fois par profil, donc la fréquence de lecture reste négligeable.
+        """
+        provider = self._daily_usage_provider
+        caps = self._warmup_policy
+        if provider is None or not caps:
+            return ""
+
+        max_actions = int(caps.get('max_actions_per_day', 0) or 0)
+        max_follows = int(caps.get('max_follows_per_day', 0) or 0)
+        max_comments = int(caps.get('max_comments_per_day', 0) or 0)
+        if max_actions <= 0 and max_follows <= 0 and max_comments <= 0:
+            return ""
+
+        try:
+            usage = provider() or {}
+        except Exception as exc:  # noqa: BLE001 — le garde-fou ne doit jamais faire échouer un run
+            log.warning(f"Daily-budget provider failed (continuing without cap): {exc}")
+            return ""
+
+        total = int(usage.get('total', 0))
+        follows = int(usage.get('follows', 0))
+        comments = int(usage.get('comments', 0))
+        if max_actions > 0 and total >= max_actions:
+            return f"Daily action budget reached ({total}/{max_actions})"
+        if max_follows > 0 and follows >= max_follows:
+            return f"Daily follow budget reached ({follows}/{max_follows})"
+        if max_comments > 0 and comments >= max_comments:
+            return f"Daily comment budget reached ({comments}/{max_comments})"
+        return ""
+
+    def set_daily_usage_provider(self, provider: Optional[Callable[[], Dict[str, int]]]) -> None:
+        """Inject the callable returning TODAY's totals for this account (keys: total/follows/comments).
+
+        Called by the workflow once the account_id is resolved. Without it, the daily-budget check
+        is a no-op — which keeps the standalone bot exactly as before.
+        """
+        self._daily_usage_provider = provider
 
     def record_profile_processed(self):
         """Record that a profile has been processed (visited for interaction).
@@ -158,8 +223,15 @@ class SessionManager:
         """
         delay_config = self.config.get('session_settings', {}).get('delay_between_actions')
         if isinstance(delay_config, dict) and ('min' in delay_config or 'max' in delay_config):
-            return random.uniform(delay_config.get('min', 5), delay_config.get('max', 15))
-        return random.uniform(self.pacing.action_delay_min, self.pacing.action_delay_max)
+            delay = random.uniform(delay_config.get('min', 5), delay_config.get('max', 15))
+        else:
+            delay = random.uniform(self.pacing.action_delay_min, self.pacing.action_delay_max)
+
+        # Plancher de cadence du garde-fou : jamais plus vite que ce minimum, quel que soit le
+        # profil de rythme choisi. C'est le levier qui casse la cadence mécanique (hier ~27s soutenu
+        # sur un compte neuf). 0/absent (standalone) -> pas de plancher, comportement inchangé.
+        floor = float(self._warmup_policy.get('min_action_gap_seconds', 0) or 0)
+        return max(delay, floor) if floor > 0 else delay
 
     def get_session_stats(self) -> Dict:
         """Return current session statistics.
@@ -189,6 +261,9 @@ class SessionManager:
         self.pacing = resolve_pacing_profile(policy.profile_id if policy else None)
 
         session_settings = self.config.get('session_settings', {})
+        # Same reason as the pacing profile: refresh the warmup caps on a config swap. The injected
+        # usage provider is deliberately NOT touched here — it carries the resolved account_id.
+        self._warmup_policy = session_settings.get('warmup_policy') or {}
         duration_minutes = session_settings.get('session_duration_minutes', 60)
         log.debug(f"Configuration updated: duration={duration_minutes}min, settings={session_settings}")
     

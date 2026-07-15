@@ -303,6 +303,20 @@ def build_instagram_automation_config(raw_config: Dict[str, Any]) -> Dict[str, A
     if behavior_policy is not None:
         built["behaviorPolicy"] = behavior_policy
 
+    # Warmup guardrail caps, injected by the desktop app. The front computes them from the
+    # account's age (private curve) and sends only NUMBERS; the public bot never sees the curve.
+    # SessionManager enforces them: a floor on the between-actions delay (cadence) and a hard stop
+    # when the day's budget is reached (defense in depth behind the front's launch gate). Absent
+    # when the bot runs standalone -> no enforcement, behaviour unchanged. 0 = no cap on that axis.
+    warmup = raw_config.get("warmupPolicy")
+    if isinstance(warmup, dict):
+        session_settings["warmup_policy"] = {
+            "max_actions_per_day": int(warmup.get("maxActionsPerDay", 0) or 0),
+            "max_follows_per_day": int(warmup.get("maxFollowsPerDay", 0) or 0),
+            "max_comments_per_day": int(warmup.get("maxCommentsPerDay", 0) or 0),
+            "min_action_gap_seconds": float(warmup.get("minActionGapSeconds", 0) or 0),
+        }
+
     return built
 
 

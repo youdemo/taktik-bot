@@ -1,0 +1,105 @@
+"""Warmup guardrail enforced by SessionManager: cadence floor + daily-budget stop.
+
+The desktop app injects numbers (session_settings.warmup_policy) computed from the account's age;
+the bot applies them. Absent (standalone) -> no enforcement, behaviour unchanged.
+"""
+
+from taktik.core.social_media.instagram.workflows.management.session.session import SessionManager
+
+
+def _sm(warmup=None, delay=None):
+    settings = {}
+    if warmup is not None:
+        settings['warmup_policy'] = warmup
+    if delay is not None:
+        settings['delay_between_actions'] = delay
+    return SessionManager({'session_settings': settings})
+
+
+# ── Cadence floor ──────────────────────────────────────────────────────────────
+
+def test_floor_raises_the_default_natural_delay():
+    # Default 'natural' alone yields 0-1s (see test_session_pacing); the floor must lift it.
+    sm = _sm(warmup={'min_action_gap_seconds': 5})
+    for _ in range(50):
+        assert sm.get_delay_between_actions() >= 5
+
+
+def test_floor_never_lowers_a_higher_delay():
+    # An explicit 10-12s delay is already above the 5s floor -> untouched.
+    sm = _sm(warmup={'min_action_gap_seconds': 5}, delay={'min': 10, 'max': 12})
+    for _ in range(50):
+        assert 10 <= sm.get_delay_between_actions() <= 12
+
+
+def test_no_floor_leaves_delay_unchanged():
+    sm = _sm(warmup={'min_action_gap_seconds': 0})
+    for _ in range(50):
+        assert 0 <= sm.get_delay_between_actions() <= 1
+
+
+# ── Daily budget stop ──────────────────────────────────────────────────────────
+
+def test_no_provider_means_cap_is_a_noop():
+    # Caps present but no usage provider (e.g. account not resolved) -> never stops on budget.
+    sm = _sm(warmup={'max_actions_per_day': 10})
+    ok, _ = sm.should_continue()
+    assert ok is True
+
+
+def test_no_caps_means_cap_is_a_noop():
+    sm = _sm(warmup={})
+    sm.set_daily_usage_provider(lambda: {'total': 9999})
+    ok, _ = sm.should_continue()
+    assert ok is True
+
+
+def test_stops_when_daily_action_budget_reached():
+    sm = _sm(warmup={'max_actions_per_day': 50})
+    sm.set_daily_usage_provider(lambda: {'total': 50, 'follows': 0, 'comments': 0})
+    ok, reason = sm.should_continue()
+    assert ok is False
+    assert 'action budget' in reason
+
+
+def test_continues_when_under_daily_budget():
+    sm = _sm(warmup={'max_actions_per_day': 50})
+    sm.set_daily_usage_provider(lambda: {'total': 49, 'follows': 0, 'comments': 0})
+    ok, _ = sm.should_continue()
+    assert ok is True
+
+
+def test_stops_on_follow_subcap_even_if_total_is_fine():
+    sm = _sm(warmup={'max_actions_per_day': 500, 'max_follows_per_day': 10})
+    sm.set_daily_usage_provider(lambda: {'total': 20, 'follows': 10, 'comments': 0})
+    ok, reason = sm.should_continue()
+    assert ok is False
+    assert 'follow budget' in reason
+
+
+def test_stops_on_comment_subcap():
+    sm = _sm(warmup={'max_actions_per_day': 500, 'max_comments_per_day': 5})
+    sm.set_daily_usage_provider(lambda: {'total': 20, 'follows': 0, 'comments': 5})
+    ok, reason = sm.should_continue()
+    assert ok is False
+    assert 'comment budget' in reason
+
+
+def test_provider_error_does_not_kill_the_session():
+    # A failing read must never stop the run — the front gate is the primary guard.
+    def boom():
+        raise RuntimeError('db down')
+
+    sm = _sm(warmup={'max_actions_per_day': 1})
+    sm.set_daily_usage_provider(boom)
+    ok, _ = sm.should_continue()
+    assert ok is True
+
+
+def test_update_config_refreshes_warmup_caps():
+    sm = _sm(warmup={'max_actions_per_day': 500})
+    sm.set_daily_usage_provider(lambda: {'total': 60, 'follows': 0, 'comments': 0})
+    assert sm.should_continue()[0] is True
+    # A config swap lowering the cap below today's total must now stop.
+    sm.update_config({'session_settings': {'warmup_policy': {'max_actions_per_day': 50}}})
+    assert sm.should_continue()[0] is False

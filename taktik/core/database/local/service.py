@@ -560,6 +560,10 @@ class LocalDatabaseService:
     def get_account_stats(self, account_id: int, days: int = 7) -> Dict[str, Any]:
         """Get aggregated stats for an account."""
         return self.stats.get_account_stats(account_id, days)
+
+    def get_today_totals(self, account_id: int) -> Dict[str, int]:
+        """Today's action totals for an account (warmup daily-budget stop)."""
+        return self.stats.get_today_totals(account_id)
     
     # ============================================
     # SCRAPING SESSIONS

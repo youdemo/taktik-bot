@@ -98,6 +98,41 @@ class StatsRepository(BaseRepository):
         )
         return cursor.rowcount > 0
 
+    def get_today_totals(self, account_id: int) -> Dict[str, int]:
+        """Today's action totals for an account, for the warmup daily-budget stop.
+
+        `total` follows the product's definition of a counted action — likes + follows + comments
+        + story views + story likes — and EXCLUDES profile visits (never counted as an interaction,
+        same rule as the dashboard). Returns zeros for a day with no row yet.
+        """
+        today = datetime.now().strftime('%Y-%m-%d')
+        row = self.query_one_orm_first(
+            """
+            SELECT
+                COALESCE(total_likes, 0) as likes,
+                COALESCE(total_follows, 0) as follows,
+                COALESCE(total_comments, 0) as comments,
+                COALESCE(total_story_views, 0) as story_views,
+                COALESCE(total_story_likes, 0) as story_likes
+            FROM daily_stats_unified
+            WHERE platform = 'instagram' AND account_id = ? AND date = ?
+            """,
+            (account_id, today),
+        )
+        if not row:
+            return {'total': 0, 'likes': 0, 'follows': 0, 'comments': 0}
+        data = dict(row)
+        total = (
+            int(data.get('likes', 0)) + int(data.get('follows', 0)) + int(data.get('comments', 0))
+            + int(data.get('story_views', 0)) + int(data.get('story_likes', 0))
+        )
+        return {
+            'total': total,
+            'likes': int(data.get('likes', 0)),
+            'follows': int(data.get('follows', 0)),
+            'comments': int(data.get('comments', 0)),
+        }
+
     def get_account_stats(self, account_id: int, days: int = 7) -> Dict[str, Any]:
         """Return aggregated daily stats for an account over the last N days (ORM-first)."""
         row = self.query_one_orm_first(

@@ -243,10 +243,32 @@ class InstagramAutomation:
             self.session_manager.update_config(self.config)
         else:
             self.session_manager = SessionManager(self.config)
-        
+
+        # Warmup daily-budget provider: give the SessionManager a way to read TODAY's totals for the
+        # active account, so its in-session cap sees this session's own live writes. Bound to a
+        # method (not a captured id) so it self-heals — before the account is identified it returns
+        # empty totals (cap no-op), and starts reading real numbers the moment active_account_id is
+        # set. No-op end to end when the desktop injected no warmup caps.
+        self.session_manager.set_daily_usage_provider(self._today_usage_for_warmup)
+
         session_settings = self.config.get('session_settings', {})
         duration_minutes = session_settings.get('session_duration_minutes', 'NOT_DEFINED')
         self.logger.debug(f"SessionManager config update: duration={duration_minutes}min, keys={list(self.config.keys())}")
+
+    def _today_usage_for_warmup(self) -> Dict[str, int]:
+        """Today's action totals for the active account, for the warmup daily-budget stop.
+
+        Returns empty totals (never trips the cap) when no account is resolved yet or the read
+        fails — the front launch gate remains the primary guard; the bot cap is defense in depth.
+        """
+        account_id = getattr(self, 'active_account_id', None)
+        if not account_id:
+            return {}
+        try:
+            return get_db_service().get_today_totals(account_id)
+        except Exception as exc:
+            self.logger.warning(f"Warmup daily-usage read failed (continuing without cap): {exc}")
+            return {}
 
     def _create_workflow_session(self, action_override: Dict[str, Any] = None) -> Optional[int]:
         return self.helpers.create_workflow_session(action_override)

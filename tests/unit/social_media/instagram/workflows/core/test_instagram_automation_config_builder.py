@@ -205,3 +205,47 @@ def test_session_config_event_is_rhythm_driven_when_no_explicit_delays():
     assert "maxDelay" not in payload["session"]
     assert payload["session"]["durationMinutes"] == 30
     assert payload["behaviorPolicy"] == {"profileId": "fast"}
+
+
+def test_warmup_policy_is_passed_through_to_session_settings():
+    """The desktop app injects warmupPolicy (camelCase numbers); the builder normalises it into
+    session_settings.warmup_policy (snake_case) for the SessionManager to enforce."""
+    config = build_instagram_automation_config(
+        {
+            "workflowType": "target_followers",
+            "target": "alpha",
+            "limits": {"maxProfiles": 10, "maxLikesPerProfile": 3},
+            "probabilities": {"like": 50, "follow": 30, "comment": 10, "watchStories": 20, "likeStories": 5},
+            "filters": {"minFollowers": 100, "maxFollowers": 5000, "minPosts": 4, "maxFollowing": 800},
+            "session": {"durationMinutes": 45},
+            "warmupPolicy": {
+                "maxActionsPerDay": 50,
+                "maxFollowsPerDay": 10,
+                "maxCommentsPerDay": 5,
+                "minActionGapSeconds": 45,
+            },
+        }
+    )
+
+    assert config["session_settings"]["warmup_policy"] == {
+        "max_actions_per_day": 50,
+        "max_follows_per_day": 10,
+        "max_comments_per_day": 5,
+        "min_action_gap_seconds": 45.0,
+    }
+
+
+def test_no_warmup_policy_leaves_session_settings_clean():
+    """Standalone (no desktop injection) -> no warmup_policy key, no enforcement."""
+    config = build_instagram_automation_config(
+        {
+            "workflowType": "target_followers",
+            "target": "alpha",
+            "limits": {"maxProfiles": 10, "maxLikesPerProfile": 3},
+            "probabilities": {"like": 50, "follow": 30, "comment": 10, "watchStories": 20, "likeStories": 5},
+            "filters": {"minFollowers": 100, "maxFollowers": 5000, "minPosts": 4, "maxFollowing": 800},
+            "session": {"durationMinutes": 45},
+        }
+    )
+
+    assert "warmup_policy" not in config["session_settings"]
