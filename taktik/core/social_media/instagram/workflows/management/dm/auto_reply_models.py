@@ -11,7 +11,7 @@ class DMAutoReplyConfig:
     
     # === API Configuration ===
     openrouter_api_key: str = ""
-    llm_model: str = "anthropic/claude-3.5-haiku"  # Modèle par défaut sur OpenRouter
+    llm_model: str = "anthropic/claude-sonnet-5"  # Modèle par défaut sur OpenRouter
     
     # === Persona & Contexte ===
     persona_name: str = ""

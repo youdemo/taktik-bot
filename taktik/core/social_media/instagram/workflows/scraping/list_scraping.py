@@ -571,7 +571,7 @@ class ScrapingListMixin(DeepQualifyMixin):
             self._ipc.ai_profile_analyzing(
                 username,
                 prompt=f"Qualifying @{username} for niche",
-                model=getattr(self._ai_service, 'text_model', 'anthropic/claude-3.5-haiku'),
+                model=getattr(self._ai_service, 'text_model', 'anthropic/claude-sonnet-5'),
             )
 
         system_prompt = (
