@@ -44,7 +44,10 @@ class FilterCriteria:
     max_following: int = 10000
     allow_private: bool = False
     max_followers_following_ratio: float = 10.0
-    
+    # Relation deja existante (bouton du header profil). Opt-in : False = comportement inchange.
+    skip_follows_us: bool = False
+    skip_already_following: bool = False
+
     @classmethod
     def from_action(cls, action: Dict[str, Any]) -> 'FilterCriteria':
         """Extract filter criteria from action config"""
@@ -54,9 +57,11 @@ class FilterCriteria:
             min_posts=action.get('min_posts', 3),
             max_following=action.get('max_following', 10000),
             allow_private=action.get('allow_private', False),
-            max_followers_following_ratio=action.get('max_followers_following_ratio', 10.0)
+            max_followers_following_ratio=action.get('max_followers_following_ratio', 10.0),
+            skip_follows_us=bool(action.get('skip_follows_us', False)),
+            skip_already_following=bool(action.get('skip_already_following', False)),
         )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict format for compatibility"""
         return {
@@ -65,7 +70,9 @@ class FilterCriteria:
             'min_posts': self.min_posts,
             'max_following': self.max_following,
             'allow_private': self.allow_private,
-            'max_followers_following_ratio': self.max_followers_following_ratio
+            'max_followers_following_ratio': self.max_followers_following_ratio,
+            'skip_follows_us': self.skip_follows_us,
+            'skip_already_following': self.skip_already_following,
         }
 
 

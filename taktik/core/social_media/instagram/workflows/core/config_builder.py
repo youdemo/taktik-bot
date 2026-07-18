@@ -154,6 +154,29 @@ def _build_action_config(
     if max_no_new_usernames_scrolls is not None:
         action_config["max_no_new_usernames_scrolls"] = max_no_new_usernames_scrolls
 
+    # === Filtres profil — l'ACTION doit les porter, pas seulement built["filters"] ===
+    #
+    # Les runners target/hashtag/post_url reconstruisent leur config via
+    # `FilterCriteria.from_action(action)` (cles PLATES sur l'action), et les chemins
+    # notifications/feed lisent `action.get('filters')` (dict imbrique). Aucun des deux ne voit
+    # jamais le `built["filters"]` top-level : sans ces cles, les filtres regles dans l'app
+    # (min/max abonnes, min posts...) etaient silencieusement remplaces par les defauts du
+    # dataclass, et les flags de relation etaient avales avec — verifie sur un run reel
+    # (etat 'following' lu, profil quand meme traite).
+    #
+    # Regle bornes HAUTES : 0 = pas de limite (un "Max followers: 0" transmis litteralement
+    # rejetterait tout profil ayant un seul abonne — meme garde que le mapper du scraping).
+    action_filters: Dict[str, Any] = {
+        "min_followers": int(filters.get("minFollowers", 50) or 0),
+        "max_followers": int(filters.get("maxFollowers", 50000) or 0) or 100000,
+        "min_posts": int(filters.get("minPosts", 5) or 0),
+        "max_following": int(filters.get("maxFollowing", 7500) or 0) or 10000,
+        "skip_follows_us": bool(filters.get("skipFollowsUs", False)),
+        "skip_already_following": bool(filters.get("skipAlreadyFollowing", False)),
+    }
+    action_config.update(action_filters)          # cles plates -> FilterCriteria.from_action
+    action_config["filters"] = dict(action_filters)  # dict imbrique -> action.get('filters')
+
     return action_config
 
 

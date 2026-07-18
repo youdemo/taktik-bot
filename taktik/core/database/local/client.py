@@ -64,6 +64,15 @@ class LocalDatabaseClient:
     def get_account_stats(self, account_id: int) -> Dict[str, Any]:
         """Get account statistics."""
         return self.local_db.get_account_stats(account_id)
+
+    def get_today_totals(self, account_id: int) -> Dict[str, int]:
+        """Today's action totals for an account (warmup daily-budget stop).
+
+        The warmup provider calls this through get_db_service(); the method existed on the
+        inner LocalDatabaseService only, so the in-session daily cap silently failed with
+        AttributeError and ran uncapped ("continuing without cap" in every session log).
+        """
+        return self.local_db.get_today_totals(account_id)
     
     # ============================================
     # PROFILES

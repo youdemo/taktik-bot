@@ -251,3 +251,84 @@ def test_no_warmup_policy_leaves_session_settings_clean():
     )
 
     assert "warmup_policy" not in config["session_settings"]
+
+
+def test_action_carries_profile_filters_and_relationship_flags():
+    """Anti-regression (2026-07-18, confirmed on a live run): the action dict MUST carry the
+    profile filters. The target/hashtag/post_url runners rebuild their config via
+    FilterCriteria.from_action(action) and the notifications/feed paths read action['filters'];
+    neither ever sees the top-level built["filters"]. Without these keys the UI filters were
+    silently replaced by dataclass defaults and the relationship-skip flags were dropped —
+    a profile whose button read 'following' was processed anyway."""
+    config = build_instagram_automation_config(
+        {
+            "workflowType": "target_followers",
+            "target": "someone",
+            "filters": {
+                "minFollowers": 123,
+                "maxFollowers": 4567,
+                "minPosts": 2,
+                "maxFollowing": 890,
+                "skipFollowsUs": True,
+                "skipAlreadyFollowing": True,
+            },
+        }
+    )
+    action = config["actions"][0]
+    # Flat keys -> FilterCriteria.from_action
+    assert action["min_followers"] == 123
+    assert action["max_followers"] == 4567
+    assert action["min_posts"] == 2
+    assert action["max_following"] == 890
+    assert action["skip_follows_us"] is True
+    assert action["skip_already_following"] is True
+    # Nested dict -> action.get('filters') readers (notifications/feed)
+    assert action["filters"]["min_followers"] == 123
+    assert action["filters"]["skip_follows_us"] is True
+
+
+def test_action_max_bounds_zero_means_no_limit():
+    """A literal 'Max followers: 0' must not reject every profile (same guard as the scraping
+    mapper): 0 on a MAX bound falls back to the permissive default."""
+    config = build_instagram_automation_config(
+        {
+            "workflowType": "target_followers",
+            "target": "someone",
+            "filters": {"minFollowers": 0, "maxFollowers": 0, "minPosts": 0, "maxFollowing": 0},
+        }
+    )
+    action = config["actions"][0]
+    assert action["min_followers"] == 0        # 0 min = no minimum, kept literally
+    assert action["max_followers"] == 100000   # 0 max = no limit
+    assert action["max_following"] == 10000
+
+
+def test_filters_survive_into_the_runner_interaction_config():
+    """End-to-end lock on the exact broken path: front raw config -> action ->
+    WorkflowConfigBuilder.build_interaction_config -> filter_criteria consumed by
+    _process_profile_on_screen. The UI values and the skip flags must all survive."""
+    from taktik.core.social_media.instagram.workflows.management.config.config import (
+        WorkflowConfigBuilder,
+    )
+
+    raw = {
+        "workflowType": "target_followers",
+        "target": "someone",
+        "filters": {
+            "minFollowers": 100,
+            "maxFollowers": 50000,
+            "minPosts": 3,
+            "maxFollowing": 7500,
+            "skipFollowsUs": True,
+            "skipAlreadyFollowing": True,
+        },
+    }
+    action = build_instagram_automation_config(raw)["actions"][0]
+    runner_config = WorkflowConfigBuilder.build_interaction_config(action)
+    criteria = runner_config["filter_criteria"]
+    assert criteria["min_followers"] == 100
+    assert criteria["max_followers"] == 50000
+    assert criteria["min_posts"] == 3
+    assert criteria["max_following"] == 7500
+    assert criteria["skip_follows_us"] is True
+    assert criteria["skip_already_following"] is True
