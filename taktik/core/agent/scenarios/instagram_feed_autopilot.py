@@ -82,6 +82,8 @@ class TaktikAgentWorkflow:
             "posts_seen": 0,
             "posts_stopped": 0,
             "session_cost_usd": 0.0,
+            # Profils ignores car une relation existait deja (on les suit / ils nous suivent).
+            "profiles_skipped_relationship": 0,
         }
 
         # Quotas (overridable from config)
@@ -93,6 +95,13 @@ class TaktikAgentWorkflow:
             "max_posts_seen": config.get("max_posts_seen", 150),
             "session_duration_min": config.get("session_duration_min", 25),
         }
+
+        # L'Agent est un chemin de CROISSANCE (acquisition). Un profil deja en relation (on le suit,
+        # ou il nous suit / demande en attente) n'est pas une cible : on le skip AVANT le screenshot
+        # et l'appel IA (economie du cout vision) et on ne re-tape jamais le bouton Suivre (taper
+        # "Suivi(e)" desabonnerait). Defaut True ; desactivable via la config si un jour on veut que
+        # l'Agent re-engage son audience.
+        self._skip_related_profiles = config.get("skip_related_profiles", True)
 
         self._stop_requested = False
         self._session_start = None
@@ -729,6 +738,19 @@ class TaktikAgentWorkflow:
         self.stats["profile_visits"] += 1
         time.sleep(1.5)
 
+        # Garde-fou RELATION (le profil est a l'ecran) : meme source de verite que les workflows
+        # manuels, get_follow_button_state(). On skip AVANT le screenshot + l'IA pour ne pas payer la
+        # vision sur une non-cible, et pour ne jamais atteindre _do_follow sur un profil deja suivi.
+        # Etat illisible ('unknown') -> on continue (fail-open, jamais de cible perdue par une lecture
+        # instable).
+        if self._skip_related_profiles:
+            state = self._read_follow_state()
+            if state in ("following", "requested", "follow_back", "message"):
+                logger.info(f"[TaktikAgent] @{username} ignore — relation existante ({state})")
+                self.stats["profiles_skipped_relationship"] += 1
+                self._navigate_to_feed()
+                return
+
         screenshot_path = self._take_screenshot(f"profile_{username}")
         if not screenshot_path:
             self._navigate_to_feed()
@@ -765,11 +787,31 @@ class TaktikAgentWorkflow:
     # Low-level actions
     # ------------------------------------------------------------------
 
+    def _read_follow_state(self) -> str:
+        """Etat du bouton d'action du header profil (profil deja a l'ecran). Best-effort :
+        'unknown' si illisible -> l'appelant continue (fail-open)."""
+        try:
+            from taktik.core.social_media.instagram.actions.atomic.interaction import ClickActions
+            return ClickActions(self.device).get_follow_button_state()
+        except Exception as exc:
+            logger.debug(f"[TaktikAgent] _read_follow_state error: {exc}")
+            return "unknown"
+
     def _do_follow(self, username: str):
         """Follow the currently visible profile."""
         try:
-            from taktik.core.social_media.instagram.actions.atomic.interaction.profile_interaction import ProfileInteractionActions
-            profile_interaction = ProfileInteractionActions(self.device_manager)
+            # ClickActions compose ProfileInteractionMixin (follow_user + get_follow_button_state).
+            # NB : l'ancien import `ProfileInteractionActions` n'existait pas -> ImportError avale par
+            # ce try/except, donc l'Agent ne suivait JAMAIS. Corrige ici.
+            from taktik.core.social_media.instagram.actions.atomic.interaction import ClickActions
+            profile_interaction = ClickActions(self.device)
+            # Filet de securite : `follow_user` tape le bouton sans verifier son etat -> sur un profil
+            # deja suivi il DESABONNERAIT. Le pre-check de _handle_profile_visit couvre deja ce cas
+            # quand skip_related_profiles est actif ; cette garde protege aussi s'il est desactive.
+            state = profile_interaction.get_follow_button_state()
+            if state in ("following", "requested", "message"):
+                logger.info(f"[TaktikAgent] @{username} deja suivi ({state}) — pas de re-follow")
+                return
             success = profile_interaction.follow_user(username)
             if success:
                 self.stats["follows"] += 1

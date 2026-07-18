@@ -173,6 +173,11 @@ class FeedBusiness(FeedPostActionsMixin, BaseBusinessAction):
                             self.logger.debug("⚠️ Could not extract post metadata, skipping filter")
 
                     if process_post:
+                        # NB filtres de RELATION (skip qui-nous-suit / qu-on-suit) : NON applicables
+                        # ici, par conception. Le workflow Feed engage TON PROPRE fil (like/commentaire
+                        # de posts + stories du bandeau) = ton audience deja abonnee. Il ne visite
+                        # aucun profil, ne lit aucun bouton d'action, ne follow personne : il n'y a pas
+                        # de decision d'ACQUISITION a gater (contrairement a target/hashtag/likers).
                         # Liker le post directement dans le feed
                         liked = False
                         if random.randint(1, 100) <= effective_config.get('like_percentage', 100):

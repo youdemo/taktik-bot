@@ -411,66 +411,10 @@ class InteractionEngineMixin:
             "posts_count": pd.get('posts_count', 0)
         } if profile_data else None)
 
-    def _interact_with_user(self, username: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        try:
-            if not self.nav_actions.navigate_to_profile(username):
-                self.logger.error(f"❌ Cannot navigate to @{username}")
-                return None
-            
-            profile_info = self.profile_business.get_complete_profile_info(username, navigate_if_needed=False)
-            if not profile_info:
-                self.logger.error(f"❌ Cannot get profile info for @{username}")
-                return None
-            
-            if profile_info.get('is_private', False):
-                self.logger.info(f"⏭️ Private profile @{username} - SKIP immediately")
-                
-                if hasattr(self, 'stats_manager'):
-                    self.stats_manager.increment('private_profiles')
-                
-                return None
-            
-            filter_result = self.filtering_business.apply_comprehensive_filter(
-                profile_info, 
-                self._get_filter_criteria_from_config(config)
-            )
-            
-            if not filter_result['suitable']:
-                reason = filter_result.get('reason', 'Criteria not met')
-                reasons = filter_result.get('reasons', [reason])
-                self.logger.info(f"🚫 @{username} filtered: {reason}")
-                
-                if hasattr(self, 'stats_manager'):
-                    if 'privé' in reason.lower() or 'private' in reason.lower():
-                        self.stats_manager.increment('private_profiles')
-                    else:
-                        self.stats_manager.increment('profiles_filtered')
-                
-                try:
-                    reasons_text = ', '.join(reasons) if reasons else reason
-                    
-                    source_type = 'HASHTAG' if 'hashtag' in self.logger._context.get('module', '') else 'POST_URL'
-                    source_name = config.get('source', 'unknown')
-                    
-                    InstagramWorkflowStateService.record_filtered_profile(
-                        username=username,
-                        reason=reasons_text,
-                        source_type=source_type,
-                        source_name=source_name,
-                        account_id=self._get_account_id(),
-                        session_id=self._get_session_id()
-                    )
-                    self.logger.debug(f"✅ Filtered profile @{username} recorded in API")
-                except Exception as e:
-                    self.logger.error(f"❌ Error recording filtered profile @{username}: {e}")
-                
-                return None
-            
-            # === INTERACTIONS (delegated to unified method) ===
-            result = self._perform_interactions_on_profile(username, config, profile_data=profile_info)
-            
-            return result if result.get('actually_interacted', False) else None
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error interacting with @{username}: {e}")
-            return None
+    # NOTE : l'ancien `_interact_with_user` (duplicata complet nav -> extract -> private -> filter
+    # -> interact) a ete SUPPRIME (2026-07-18). C'etait un chemin mort : le seul appelant
+    # (`notifications/workflow.py`) resout, par MRO, vers l'override
+    # `NotificationInteractionsMixin._interact_with_user`, qui passe par `_process_profile_on_screen`.
+    # Le duplicata court-circuitait ce pipeline partage — donc aussi le garde-fou de RELATION (skip
+    # des profils qui nous suivent / qu'on suit deja). Tout traitement de profil doit passer par
+    # `_process_profile_on_screen` (ProfileProcessingMixin), source unique de la decision de skip.
