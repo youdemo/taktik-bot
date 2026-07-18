@@ -698,6 +698,25 @@ STRINGS: Dict[str, List[str]] = {
     "profile.follow_button_text_labels": [
         "Suivre",
     ],
+    # Libelles d'ETAT du bouton d'action du header profil (resource-id
+    # profile_header_follow_button). Ce sont des LIBELLES bruts, pas des xpath : la lecture fait
+    # un seul acces device (le bouton est deja cible par resource-id) puis compare son texte.
+    # Radicaux volontairement courts pour absorber les variantes ("Suivi" couvre "Suivi(e)").
+    # ATTENTION : l'ordre de test est porteur cote code (following > requested > follow_back >
+    # follow) car "Suivre en retour" contient "Suivre".
+    "profile.follow_state_labels_following": [
+        "Abonné",
+        "Suivi",
+    ],
+    "profile.follow_state_labels_requested": [
+        "Demandé",
+    ],
+    "profile.follow_state_labels_follow_back": [
+        "Suivre en retour",
+    ],
+    "profile.follow_state_labels_follow": [
+        "Suivre",
+    ],
     "profile.followers_link": [
         "//*[contains(@content-desc, \"abonnés\")]",
         "//*[contains(@content-desc, \"Abonnés\")]",
@@ -706,9 +725,17 @@ STRINGS: Dict[str, List[str]] = {
         "//android.widget.TextView[contains(@text, \"abonnés\")]",
         "//android.widget.TextView[contains(@text, \"Abonnés\")]",
     ],
+    # SCOPE : un match texte nu attrapait aussi profile_header_follow_context_text
+    # ("Suivi(e) par X, Y" = amis en commun), un TextView NON cliquable au-dessus du bouton ->
+    # click_unfollow_button pouvait taper ce libelle. On scope d'abord par resource-id, puis on
+    # retombe sur la classe Button (le parasite est un TextView).
     "profile.following_button": [
-        "//*[contains(@text, \"Abonné\")]",
-        "//*[contains(@text, \"Suivi(e)\")]",
+        "//*[@resource-id=\"com.instagram.android:id/profile_header_follow_button\" and contains(@text, \"Abonné\")]",
+        "//*[@resource-id=\"com.instagram.android:id/profile_header_follow_button\" and contains(@text, \"Suivi\")]",
+        "//*[@resource-id=\"com.instagram.android:id/follow_button\" and contains(@text, \"Abonné\")]",
+        "//*[@resource-id=\"com.instagram.android:id/follow_button\" and contains(@text, \"Suivi\")]",
+        "//android.widget.Button[contains(@text, \"Abonné\")]",
+        "//android.widget.Button[contains(@text, \"Suivi\")]",
     ],
     "profile.following_link": [
         "//*[contains(@content-desc, \"abonnements\")]",

@@ -26,6 +26,10 @@ class ProfileProcessingResult:
     SKIPPED_PROBABILITY = 'skipped_probability'
     FILTERED_PRIVATE = 'filtered_private'
     FILTERED_CRITERIA = 'filtered_criteria'
+    # Une RELATION existait deja (il nous suit / on le suit). Statut distinct de
+    # FILTERED_CRITERIA : ce n'est pas un rejet sur criteres de profil, et les confondre
+    # rendrait illisibles le panneau Agent et les stats de session.
+    FILTERED_RELATIONSHIP = 'filtered_relationship'
     ERROR_NO_DATA = 'error_no_data'
     ERROR_EXCEPTION = 'error_exception'
     
@@ -43,7 +47,13 @@ class ProfileProcessingResult:
     
     @property
     def was_filtered(self) -> bool:
-        return self.status in (self.FILTERED_PRIVATE, self.FILTERED_CRITERIA)
+        return self.status in (
+            self.FILTERED_PRIVATE, self.FILTERED_CRITERIA, self.FILTERED_RELATIONSHIP
+        )
+
+    @property
+    def was_relationship_skip(self) -> bool:
+        return self.status == self.FILTERED_RELATIONSHIP
     
     @property
     def was_private(self) -> bool:
@@ -168,8 +178,31 @@ class ProfileProcessingMixin:
                 })
                 return result
             
-            # === 4. Apply filters ===
+            # === 3.5 Relation deja existante (il nous suit / on le suit) ===
+            # Place APRES l'extraction (le bouton du header est deja lu, cf. extraction.py) et
+            # AVANT les filtres + l'IA : un profil ignore ici ne coute ni budget d'actions ni
+            # appel de qualification. Sans ce garde-fou, un abonne existant etait re-cible comme
+            # une cible neuve (le bouton "Suivre en retour" ressortait en etat 'follow').
             filter_criteria = config.get('filter_criteria', config.get('filters', {}))
+            relationship_reason = self._relationship_skip_reason(username, profile_data, filter_criteria)
+            if relationship_reason:
+                result.status = ProfileProcessingResult.FILTERED_RELATIONSHIP
+                result.filter_reasons = [relationship_reason]
+                self.logger.info(f"🤝 @{username} ignore — {relationship_reason}")
+                self.stats_manager.increment('relationship_skipped')
+                # Enregistrement OBLIGATOIRE : sans lui, `already_processed` ne verrait jamais ce
+                # profil et le bot y reviendrait a chaque passage, indefiniment.
+                self._record_filtered_in_db(
+                    username, relationship_reason, source_type, source_name,
+                    account_id, session_id
+                )
+                IPCEmitter.emit_action('filter', username, {
+                    'reasons': [relationship_reason],
+                    'followers_count': profile_data.get('followers_count', 0),
+                })
+                return result
+
+            # === 4. Apply filters ===
             filter_result = self.filtering_business.apply_comprehensive_filter(
                 profile_data, filter_criteria
             )
@@ -230,6 +263,46 @@ class ProfileProcessingMixin:
                     duration_ms=int((time.time() - analysis_t0) * 1000),
                     outcome=result.status,
                 )
+
+    def _relationship_skip_reason(
+        self, username: str, profile_data: Dict[str, Any], filter_criteria: Dict[str, Any]
+    ) -> Optional[str]:
+        """Faut-il ignorer ce profil parce qu'une relation existe deja ? Renvoie la raison, ou None.
+
+        Deux axes INDEPENDANTS, tous deux desactives par defaut (opt-in, comportement inchange
+        sans reglage) :
+          - `skip_follows_us`        : le bouton dit "Suivre en retour" -> IL NOUS SUIT deja.
+          - `skip_already_following` : le bouton dit "Suivi(e)"/"Following" -> ON LE SUIT deja.
+
+        Etat illisible ('unknown') : on RELIT une fois (le header peut ne pas etre encore peuple)
+        puis, si c'est toujours illisible, on laisse passer (fail-open). Le garde-fou est une
+        optimisation de ciblage, il ne doit jamais faire perdre des cibles valides sur une lecture
+        instable. Le cas est journalise pour pouvoir en mesurer la frequence reelle.
+        """
+        skip_follows_us = bool(filter_criteria.get('skip_follows_us', False))
+        skip_already_following = bool(filter_criteria.get('skip_already_following', False))
+        if not skip_follows_us and not skip_already_following:
+            return None
+
+        state = (profile_data or {}).get('follow_button_state', 'unknown')
+        if state == 'unknown':
+            try:
+                state = self.click_actions.get_follow_button_state()
+                # Le relire ne sert a rien si on ne le memorise pas pour la suite du traitement.
+                if isinstance(profile_data, dict):
+                    profile_data['follow_button_state'] = state
+            except Exception as exc:  # noqa: BLE001 — jamais fatal
+                self.logger.debug(f"Relation @{username} : relecture impossible ({exc})")
+                state = 'unknown'
+            if state == 'unknown':
+                self.logger.debug(f"Relation @{username} : etat illisible -> on interagit")
+                return None
+
+        if skip_follows_us and state == 'follow_back':
+            return 'Already follows us'
+        if skip_already_following and state in ('following', 'requested'):
+            return 'Already followed by us'
+        return None
 
     def _record_filtered_in_db(
         self, username: str, reason: str, source_type: str,

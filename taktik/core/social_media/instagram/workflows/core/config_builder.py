@@ -274,6 +274,10 @@ def build_instagram_automation_config(raw_config: Dict[str, Any]) -> Dict[str, A
             "min_posts": min_posts,
             "privacy_relation": "public_and_private",
             "blacklist_words": [],
+            # Relation deja existante — deux axes independants, opt-in (absent/False = comportement
+            # inchange). Lus par `_relationship_skip_reason` juste apres l'extraction du profil.
+            "skip_follows_us": bool(filters.get("skipFollowsUs", False)),
+            "skip_already_following": bool(filters.get("skipAlreadyFollowing", False)),
         },
         "session_settings": session_settings,
         "actions": [

@@ -766,6 +766,23 @@ STRINGS: Dict[str, List[str]] = {
     "profile.follow_button_text_labels": [
         "Follow",
     ],
+    # STATE labels of the profile-header action button (resource-id
+    # profile_header_follow_button). Raw LABELS, not xpaths: the read does a single device call
+    # (the button is already resource-id scoped) then compares its text.
+    # NOTE: the test order is load-bearing in the caller (following > requested > follow_back >
+    # follow) because "Following" contains "Follow" and "Follow back" contains "Follow".
+    "profile.follow_state_labels_following": [
+        "Following",
+    ],
+    "profile.follow_state_labels_requested": [
+        "Requested",
+    ],
+    "profile.follow_state_labels_follow_back": [
+        "Follow back",
+    ],
+    "profile.follow_state_labels_follow": [
+        "Follow",
+    ],
     "profile.followers_link": [
         "//*[contains(@content-desc, \"followers\")]",
         "//*[contains(@content-desc, \"Followers\")]",
@@ -774,8 +791,14 @@ STRINGS: Dict[str, List[str]] = {
         "//android.widget.TextView[contains(@text, \"followers\")]",
         "//android.widget.TextView[contains(@text, \"Followers\")]",
     ],
+    # SCOPE: a bare text match also caught profile_header_follow_context_text
+    # ("Followed by X, Y" = mutual friends), a NON-clickable TextView above the button -> a
+    # click_unfollow_button could tap that label. Scope by resource-id first, then fall back to
+    # the Button class (the decoy is a TextView).
     "profile.following_button": [
-        "//*[contains(@text, \"Following\")]",
+        "//*[@resource-id=\"com.instagram.android:id/profile_header_follow_button\" and contains(@text, \"Following\")]",
+        "//*[@resource-id=\"com.instagram.android:id/follow_button\" and contains(@text, \"Following\")]",
+        "//android.widget.Button[contains(@text, \"Following\")]",
     ],
     "profile.following_link": [
         "//*[contains(@content-desc, \"following\")]",

@@ -29,6 +29,23 @@ def is_unfollow_available(a, p):
     return result
 
 
+@action("profile.get_follow_state")
+def get_follow_state(a, p):
+    """Read the relationship shown by the profile-header action button.
+
+    follow = no relationship | follow_back = THEY follow us | following = WE follow them
+    | requested = pending request | message | unknown.
+    Same production function the workflows use to decide whether to skip an existing relationship.
+    """
+    state = a.click.get_follow_button_state()
+    logger.info(f"Follow button state: {state}")
+    return {
+        "success": state != "unknown",
+        "message": state,
+        "details": {"follow_button_state": state},
+    }
+
+
 @action("profile.click_followers_count")
 def click_followers(a, p):
     return a.click.click_followers_count()

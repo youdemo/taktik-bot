@@ -92,12 +92,46 @@ class ProfileSelectors:
         return self._follow_button_base + L("profile.follow_button")
 
     @property
+    def follow_button_anchors(self) -> List[str]:
+        """Les xpath resource-id PURS du bouton d'action du header (aucun texte -> neutres langue).
+
+        Point d'ancrage de la LECTURE D'ETAT : on cible le bouton par son id, puis on lit son texte
+        et on le compare aux libelles `follow_state_labels_*`. Ne jamais utiliser une forme texte
+        ici : elle attraperait `profile_header_follow_context_text` ("Suivi(e) par X, Y").
+        """
+        return list(self._follow_button_base)
+
+    @property
     def following_button(self) -> List[str]:
+        # Les formes sont SCOPEES au bouton cote locales : un match texte nu sur "Suivi(e)" /
+        # "Following" attrape aussi `profile_header_follow_context_text` ("Suivi(e) par X, Y" =
+        # les amis en commun), un TextView NON cliquable place au-dessus du bouton — de quoi faire
+        # taper le mauvais noeud. On ne peut pas prefixer par `_follow_button_base` (resource-id
+        # nu) : il matcherait le bouton dans N'IMPORTE quel etat et casserait la detection d'etat.
         return L("profile.following_button")
 
     @property
     def follow_button_text_labels(self) -> List[str]:
         return L("profile.follow_button_text_labels")
+
+    # === Libelles d'ETAT du bouton d'action (overlay locales/) ===
+    # Utilises par get_follow_button_state() : un seul acces device sur le bouton, puis comparaison
+    # de son texte a ces libelles. L'ordre de test est porteur (cf. commentaire dans les locales).
+    @property
+    def follow_state_labels_following(self) -> List[str]:
+        return L("profile.follow_state_labels_following")
+
+    @property
+    def follow_state_labels_requested(self) -> List[str]:
+        return L("profile.follow_state_labels_requested")
+
+    @property
+    def follow_state_labels_follow_back(self) -> List[str]:
+        return L("profile.follow_state_labels_follow_back")
+
+    @property
+    def follow_state_labels_follow(self) -> List[str]:
+        return L("profile.follow_state_labels_follow")
 
     _message_button_base: List[str] = field(default_factory=lambda: [
         # "Message" est identique en EN/FR -> neutre.

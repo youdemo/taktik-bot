@@ -127,33 +127,58 @@ class ProfileInteractionMixin(BaseAction):
 
     # === Follow button state ===
 
+    @staticmethod
+    def _text_matches_any_label(text: str, labels: Optional[List[str]]) -> bool:
+        """Le texte du bouton contient-il l'un des libelles ? (comparaison insensible a la casse)"""
+        return any(
+            label.strip().lower() in text
+            for label in (labels or [])
+            if label and label.strip()
+        )
+
     def get_follow_button_state(self) -> str:
         """
-        Detect the follow button state by checking the button text.
-        Returns: 'follow', 'following', 'requested', 'message', or 'unknown'
-        
-        Optimized: tries resource-id lookup first (1 XPath call → read text)
-        instead of iterating 16+ selectors sequentially (~0.5-1s each when absent).
+        Etat de la relation, lu sur le bouton d'action du header profil.
+
+        Returns: 'follow' | 'follow_back' | 'following' | 'requested' | 'message' | 'unknown'
+
+        - 'follow'      : aucune relation -> cible neuve
+        - 'follow_back' : IL NOUS SUIT (bouton "Suivre en retour" / "Follow back")
+        - 'following'   : ON LE SUIT deja
+        - 'requested'   : demande envoyee (compte prive)
+
+        On ancre par resource-id (neutre langue) puis on compare le TEXTE aux libelles de la couche
+        locale — jamais de libelle en dur ici. L'ancrage par id est indispensable : une forme texte
+        nue attraperait `profile_header_follow_context_text` ("Suivi(e) par X, Y" = amis en commun).
+
+        ORDRE DE TEST PORTEUR : following > requested > follow_back > follow. "Following" contient
+        "Follow" et "Suivre en retour" contient "Suivre" — tester 'follow' en premier renverrait
+        'follow' pour un bouton "Suivre en retour" (le bug qui faisait re-cibler nos propres
+        abonnes). Reste correct meme si `L()` retombe sur l'union multi-langue : les libelles des
+        differents etats ne se recouvrent pas entre eux.
         """
-        # === FAST PATH: find button by resource-id, then read its text ===
-        try:
-            btn = self.device.xpath(PROFILE_SELECTORS.follow_button[0])
-            if btn.exists:
+        selectors = self.profile_selectors
+        for anchor in selectors.follow_button_anchors:
+            try:
+                btn = self.device.xpath(anchor)
+                if not btn.exists:
+                    continue
                 text = (btn.get_text() or '').strip().lower()
-                if text:
-                    if any(kw in text for kw in ('following', 'abonné', 'suivi')):
-                        return 'following'
-                    if any(kw in text for kw in ('requested', 'demandé')):
-                        return 'requested'
-                    if any(kw in text for kw in ('follow', 'suivre')):
-                        return 'follow'
-                    if any(kw in text for kw in ('message', 'envoyer')):
-                        return 'message'
-        except Exception:
-            pass
-        
+                if not text:
+                    continue
+                if self._text_matches_any_label(text, selectors.follow_state_labels_following):
+                    return 'following'
+                if self._text_matches_any_label(text, selectors.follow_state_labels_requested):
+                    return 'requested'
+                if self._text_matches_any_label(text, selectors.follow_state_labels_follow_back):
+                    return 'follow_back'
+                if self._text_matches_any_label(text, selectors.follow_state_labels_follow):
+                    return 'follow'
+            except Exception:
+                continue
+
         # === FALLBACK: check Message button (means we already follow) ===
         if self._is_element_present(self.profile_selectors.message_button):
             return 'message'
-        
+
         return 'unknown'

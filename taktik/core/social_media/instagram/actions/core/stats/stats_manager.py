@@ -36,6 +36,10 @@ class BaseStatsManager:
             'profiles_interacted': 0,
             'skipped': 0,
             'private_profiles': 0,
+            # Profils ignores parce qu'une RELATION existait deja (il nous suit / on le suit).
+            # Compteur distinct de `profiles_filtered` : ce n'est pas un rejet sur criteres, et le
+            # confondre rendrait le panneau Agent illisible.
+            'relationship_skipped': 0,
             
             'likes': 0,
             'likes_made': 0,

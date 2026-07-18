@@ -69,12 +69,51 @@ def test_fr_injects_only_french():
     assert "Follow" not in follow
 
     following = _joined(PROFILE_SELECTORS.following_button)
-    assert "Abonné" in following and "Suivi(e)" in following
+    # Radical "Suivi" (et non "Suivi(e)") pour absorber les deux rendus d'Instagram.
+    assert "Abonné" in following and "Suivi" in following
     assert "Following" not in following
 
     assert PROFILE_SELECTORS.private_text_contains == ["compte est privé"]
     assert PROFILE_SELECTORS.follow_button_text_labels == ["Suivre"]
     assert PROFILE_SELECTORS.message_button_text_labels == ["Message", "Envoyer un message"]
+
+
+def test_following_button_is_always_scoped_to_the_button():
+    """Anti-regression: `following_button` must never be a BARE text match.
+
+    Device truth: the profile header also carries `profile_header_follow_context_text`
+    ("Suivi(e) par X, Y" / "Followed by X, Y" = mutual friends), a NON-clickable TextView sitting
+    just above the button. A bare //*[contains(@text, "Suivi(e)")] matches that decoy, so
+    click_unfollow_button could tap the label instead of the button. Every entry must therefore be
+    anchored either by resource-id or by the Button class (the decoy is a TextView).
+    """
+    for loc in (None, "fr", "en"):
+        set_active_locale(loc)
+        for entry in PROFILE_SELECTORS.following_button:
+            assert (
+                "resource-id" in entry or "android.widget.Button" in entry
+            ), f"unscoped following_button entry for locale {loc!r}: {entry}"
+
+
+def test_follow_state_labels_are_disjoint_per_locale():
+    """The state labels must not cross-match, otherwise the ordered detection breaks.
+
+    Specifically: no `follow` label may be a substring of a `follow_back` label match test in the
+    wrong direction — the caller tests following > requested > follow_back > follow, so what must
+    hold is that a follow_back BUTTON TEXT is not caught by the `following` labels.
+    """
+    for loc in ("fr", "en"):
+        set_active_locale(loc)
+        back_labels = PROFILE_SELECTORS.follow_state_labels_follow_back
+        following_labels = PROFILE_SELECTORS.follow_state_labels_following
+        assert back_labels, f"missing follow_back labels for {loc}"
+        for back in back_labels:
+            text = back.lower()
+            for lab in following_labels:
+                assert lab.lower() not in text, (
+                    f"[{loc}] '{lab}' matches the follow-back label '{back}' -> "
+                    "a profile that follows us would be read as 'following'"
+                )
 
 
 def test_en_injects_only_english():
