@@ -69,20 +69,47 @@ def test_continues_when_under_daily_budget():
     assert ok is True
 
 
-def test_stops_on_follow_subcap_even_if_total_is_fine():
+def test_follow_subcap_does_not_stop_the_session():
+    # A spent sub-quota disables ITS action, it does not end the run: the session still has
+    # 480 actions of global budget to like and watch stories with.
     sm = _sm(warmup={'max_actions_per_day': 500, 'max_follows_per_day': 10})
     sm.set_daily_usage_provider(lambda: {'total': 20, 'follows': 10, 'comments': 0})
-    ok, reason = sm.should_continue()
-    assert ok is False
-    assert 'follow budget' in reason
+    ok, _ = sm.should_continue()
+    assert ok is True
+    assert sm.exhausted_daily_quotas() == {'follow'}
 
 
-def test_stops_on_comment_subcap():
+def test_comment_subcap_does_not_stop_the_session():
     sm = _sm(warmup={'max_actions_per_day': 500, 'max_comments_per_day': 5})
     sm.set_daily_usage_provider(lambda: {'total': 20, 'follows': 0, 'comments': 5})
-    ok, reason = sm.should_continue()
-    assert ok is False
-    assert 'comment budget' in reason
+    ok, _ = sm.should_continue()
+    assert ok is True
+    assert sm.exhausted_daily_quotas() == {'comment'}
+
+
+def test_both_subcaps_can_be_exhausted_at_once():
+    sm = _sm(warmup={'max_actions_per_day': 500, 'max_follows_per_day': 10, 'max_comments_per_day': 5})
+    sm.set_daily_usage_provider(lambda: {'total': 20, 'follows': 12, 'comments': 7})
+    assert sm.should_continue()[0] is True
+    assert sm.exhausted_daily_quotas() == {'follow', 'comment'}
+
+
+def test_no_quota_is_exhausted_under_the_caps():
+    sm = _sm(warmup={'max_actions_per_day': 500, 'max_follows_per_day': 10, 'max_comments_per_day': 5})
+    sm.set_daily_usage_provider(lambda: {'total': 20, 'follows': 9, 'comments': 4})
+    assert sm.exhausted_daily_quotas() == set()
+
+
+def test_exhausted_quotas_fail_open_without_provider_or_on_error():
+    # Standalone (no provider) and a failing read must both mask nothing.
+    sm = _sm(warmup={'max_follows_per_day': 1})
+    assert sm.exhausted_daily_quotas() == set()
+
+    def boom():
+        raise RuntimeError('db down')
+
+    sm.set_daily_usage_provider(boom)
+    assert sm.exhausted_daily_quotas() == set()
 
 
 def test_provider_error_does_not_kill_the_session():

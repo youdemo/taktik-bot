@@ -141,39 +141,60 @@ class SessionManager:
         return True, ""
 
     def _check_daily_budget(self) -> str:
-        """Le budget quotidien est-il atteint ? Renvoie la raison d'arrêt, ou '' pour continuer.
+        """Le budget GLOBAL du jour est-il atteint ? Renvoie la raison d'arrêt, ou '' pour continuer.
+
+        Seul le budget d'actions global arrête la session. Les sous-quotas (suivis, commentaires)
+        ne sont PAS un motif d'arrêt : ils désactivent leur propre action pour le reste de la
+        journée (voir `exhausted_daily_quotas`). Les arrêter tuait toute la session dès que le
+        plafond le moins essentiel était atteint, alors que le budget global laissait encore de
+        quoi liker et regarder des stories.
 
         Best-effort : une erreur de lecture ne doit pas tuer la session (le front reste le garde
         principal). Le fournisseur lit les totaux du jour du compte à chaque appel — should_continue
         n'est consulté qu'une fois par profil, donc la fréquence de lecture reste négligeable.
         """
-        provider = self._daily_usage_provider
-        caps = self._warmup_policy
-        if provider is None or not caps:
+        usage = self._read_daily_usage()
+        if usage is None:
             return ""
 
-        max_actions = int(caps.get('max_actions_per_day', 0) or 0)
-        max_follows = int(caps.get('max_follows_per_day', 0) or 0)
-        max_comments = int(caps.get('max_comments_per_day', 0) or 0)
-        if max_actions <= 0 and max_follows <= 0 and max_comments <= 0:
-            return ""
-
-        try:
-            usage = provider() or {}
-        except Exception as exc:  # noqa: BLE001 — le garde-fou ne doit jamais faire échouer un run
-            log.warning(f"Daily-budget provider failed (continuing without cap): {exc}")
-            return ""
-
+        max_actions = int(self._warmup_policy.get('max_actions_per_day', 0) or 0)
         total = int(usage.get('total', 0))
-        follows = int(usage.get('follows', 0))
-        comments = int(usage.get('comments', 0))
         if max_actions > 0 and total >= max_actions:
             return f"Daily action budget reached ({total}/{max_actions})"
-        if max_follows > 0 and follows >= max_follows:
-            return f"Daily follow budget reached ({follows}/{max_follows})"
-        if max_comments > 0 and comments >= max_comments:
-            return f"Daily comment budget reached ({comments}/{max_comments})"
         return ""
+
+    def _read_daily_usage(self) -> Optional[Dict[str, int]]:
+        """Les totaux du jour du compte, ou None quand il n'y a rien à faire respecter."""
+        provider = self._daily_usage_provider
+        if provider is None or not self._warmup_policy:
+            return None
+        try:
+            return provider() or {}
+        except Exception as exc:  # noqa: BLE001 — le garde-fou ne doit jamais faire échouer un run
+            log.warning(f"Daily-budget provider failed (continuing without cap): {exc}")
+            return None
+
+    def exhausted_daily_quotas(self) -> set:
+        """Les sous-quotas épuisés aujourd'hui : {'follow'} / {'comment'} / les deux.
+
+        L'appelant (le moteur d'interaction) retire l'intention correspondante du plan de chaque
+        profil, de sorte que la session continue de liker et de regarder les stories alors que les
+        commentaires du jour sont consommés. Vide en standalone (aucun plafond injecté) et vide en
+        cas d'erreur de lecture — fail-open, comme le reste du garde-fou.
+        """
+        usage = self._read_daily_usage()
+        if usage is None:
+            return set()
+
+        caps = self._warmup_policy
+        spent = set()
+        max_follows = int(caps.get('max_follows_per_day', 0) or 0)
+        if max_follows > 0 and int(usage.get('follows', 0)) >= max_follows:
+            spent.add('follow')
+        max_comments = int(caps.get('max_comments_per_day', 0) or 0)
+        if max_comments > 0 and int(usage.get('comments', 0)) >= max_comments:
+            spent.add('comment')
+        return spent
 
     def set_daily_usage_provider(self, provider: Optional[Callable[[], Dict[str, int]]]) -> None:
         """Inject the callable returning TODAY's totals for this account (keys: total/follows/comments).

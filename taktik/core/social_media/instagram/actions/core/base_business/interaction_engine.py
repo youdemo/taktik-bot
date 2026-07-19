@@ -9,6 +9,7 @@ from taktik.core.database.instagram_workflow_state import InstagramWorkflowState
 from taktik.core.shared.behavior.interaction_plan import (
     apply_relevance_gating,
     build_interaction_plan,
+    mask_exhausted_intents,
     sample_story_like_count,
     sample_story_like_slots,
 )
@@ -72,6 +73,24 @@ class InteractionEngineMixin:
             plan = build_interaction_plan(config, interactions_to_do, posts_count=posts_count)
             self.logger.debug(f"🎯 Plan for @{username}: {interactions_to_do} → "
                               f"likes={plan.like_target}, story_slot={plan.story_like_slot}")
+
+            # === DAILY SUB-QUOTAS ===
+            # A spent follow/comment quota removes ITS OWN intent for the rest of the day instead
+            # of ending the session: the run keeps liking and watching stories on the action
+            # budget it still has. No-op in standalone (no caps injected).
+            session = getattr(self, 'session_manager', None)
+            if session is not None and hasattr(session, 'exhausted_daily_quotas'):
+                try:
+                    spent = session.exhausted_daily_quotas()
+                except Exception as e:
+                    self.logger.debug(f"Daily quota read failed (no masking): {e}")
+                    spent = None
+                plan, quota_masked = mask_exhausted_intents(plan, spent)
+                if quota_masked:
+                    self.logger.info(
+                        f"📵 @{username}: {', '.join(quota_masked)} désactivé(s) — quota du jour atteint"
+                    )
+                    emit_step("daily_quota", action="mask", target=username, masked=quota_masked)
 
             # === RELEVANCE GATING (opt-in) ===
             # The AI engagement verdict + gating settings ride on profile_data (set by the

@@ -153,6 +153,42 @@ def build_interaction_plan(config: dict, interactions_to_do, *, posts_count=None
     )
 
 
+def mask_exhausted_intents(plan: InteractionPlan, exhausted) -> tuple:
+    """Drop the intents whose DAILY quota is already spent. Returns (plan, masked_names).
+
+    The desktop guard caps follows and comments per day on top of the global action budget.
+    Hitting one of those used to end the session, which was the wrong trade: a spent comment
+    quota says nothing about the right to like or watch a story, so an account with most of
+    its action budget left sat idle until the next day. The quota now removes ITS OWN intent
+    and the session carries on.
+
+    `exhausted` holds the intent names ('follow', 'comment'). Pure and dependency-free, like
+    the rest of this module; an empty/None set returns the plan untouched.
+    """
+    if not exhausted:
+        return plan, []
+
+    masked = []
+    if plan.do_follow and 'follow' in exhausted:
+        masked.append('follow')
+    if plan.do_comment and 'comment' in exhausted:
+        masked.append('comment')
+    if not masked:
+        return plan, []
+
+    return InteractionPlan(
+        like_target=plan.like_target,
+        do_follow=plan.do_follow and 'follow' not in masked,
+        do_comment=plan.do_comment and 'comment' not in masked,
+        max_comments=0 if 'comment' in masked else plan.max_comments,
+        do_watch_story=plan.do_watch_story,
+        story_like_slot=plan.story_like_slot,
+        max_story_slides=plan.max_story_slides,
+        do_story_like=plan.do_story_like,
+        max_story_likes=plan.max_story_likes,
+    ), masked
+
+
 @dataclass
 class RelevanceGating:
     """Outcome of applying the AI engagement verdict to a resolved plan.
