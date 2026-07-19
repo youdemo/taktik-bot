@@ -18,6 +18,24 @@ from taktik.core.shared.telemetry import emit_step
 class InteractionEngineMixin:
     """Mixin: moteur d'interaction unifié (perform_interactions, stories, IPC events)."""
 
+    def _count_live(self, stat_name: str, value: int = 1) -> None:
+        """Move a live counter THE INSTANT the gesture lands.
+
+        `BaseStatsManager.increment` publishes a stats snapshot on every call, so counting
+        here — inside the engine, right after the tap — is what makes the desktop live panel
+        tick action by action. The callers used to add the profile's totals afterwards
+        (`increment('likes', 3)`), which meant the panel sat still for the whole profile and
+        then jumped by 3; that aggregation has been removed from them, so counting here is
+        the single source and cannot double-count.
+        """
+        manager = getattr(self, 'stats_manager', None)
+        if manager is None:
+            return
+        try:
+            manager.increment(stat_name, value)
+        except Exception as e:
+            self.logger.debug(f"Live counter {stat_name} failed: {e}")
+
     def _perform_interactions_on_profile(
         self,
         username: str,
@@ -144,7 +162,12 @@ class InteractionEngineMixin:
                     max_comments=plan.max_comments,
                     navigate_to_profile=False,
                     profile_data=profile_data,
-                    should_like=should_like
+                    should_like=should_like,
+                    # Live counters tick per gesture: the like loop lives inside
+                    # LikeOrchestration, which owns a DIFFERENT stats manager, so it reports
+                    # each landed like/comment back through these callbacks instead.
+                    on_like=lambda: self._count_live('likes'),
+                    on_comment=lambda: self._count_live('comments'),
                 )
                 if likes_result:
                     result['likes'] = likes_result.get('posts_liked', 0)
@@ -218,8 +241,7 @@ class InteractionEngineMixin:
             result['follows'] = 1
             result['actually_interacted'] = True
             self.logger.info(f"✅ Followed @{username}")
-            # NOTE: stats_manager.increment('follows') is NOT called here (callers track stats to
-            # avoid double-counting).
+            self._count_live('follows')
             self._record_action(username, 'FOLLOW', 1)
             self._emit_follow_event(username, profile_data)
             emit_step("follow", action="button", target=username)
@@ -331,6 +353,7 @@ class InteractionEngineMixin:
                 time.sleep(view_duration)
                 stories_viewed += 1
                 watch_times.append(self._action_timestamp())
+                self._count_live('stories_watched')
 
                 # Like this slide if it's one of the planned (varied) slots.
                 if want_like and idx in like_slots:
@@ -338,6 +361,7 @@ class InteractionEngineMixin:
                         if self.click_actions.like_story():
                             stories_liked += 1
                             story_like_times.append(self._action_timestamp())
+                            self._count_live('story_likes')
                             self.logger.debug(f"Story slide #{idx + 1} liked")
                     except Exception:
                         pass
@@ -356,6 +380,7 @@ class InteractionEngineMixin:
                             if self.click_actions.like_story():
                                 stories_liked += 1
                                 story_like_times.append(self._action_timestamp())
+                                self._count_live('story_likes')
                                 self.logger.debug(f"Story last slide (#{idx + 1}) liked (fallback)")
                         except Exception:
                             pass

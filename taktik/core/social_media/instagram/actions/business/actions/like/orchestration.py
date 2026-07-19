@@ -2,7 +2,7 @@
 
 import time
 import random
-from typing import Dict, List, Any, Optional
+from typing import Callable, Dict, List, Any, Optional
 from loguru import logger
 
 from ....core.base_business import BaseBusinessAction
@@ -37,7 +37,17 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
             'skip_already_liked': True
         }
     
-    def like_profile_posts(self, username: str, max_likes: int = 3, 
+    @staticmethod
+    def _notify_gesture(callback: Optional[Callable[[], None]], label: str) -> None:
+        """Fire a live-counter callback without ever letting it break the run."""
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception as e:
+            logger.debug(f"Live {label} counter callback failed: {e}")
+
+    def like_profile_posts(self, username: str, max_likes: int = 3,
                           navigate_to_profile: bool = True,
                           config: dict = None,
                           profile_data: dict = None,
@@ -45,7 +55,17 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                           custom_comments: list = None,
                           comment_template_category: str = 'generic',
                           max_comments: int = 1,
-                          should_like: bool = True) -> dict:
+                          should_like: bool = True,
+                          on_like: Optional[Callable[[], None]] = None,
+                          on_comment: Optional[Callable[[], None]] = None) -> dict:
+        """Like (and optionally comment) a profile's posts.
+
+        on_like / on_comment: optional callbacks fired the INSTANT a like/comment lands,
+        so the caller can move its live counters gesture by gesture. This class owns its
+        own BaseStatsManager (module "like"), which is NOT the workflow's — incrementing
+        it here would publish a second, empty counter set over the workflow's own. The
+        caller injects what it wants counted; nothing here reaches for IPC.
+        """
         config = {**self.default_config, **(config or {})}
         
         stats = {
@@ -85,7 +105,7 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                 username, max_likes, config, profile_data=profile_info,
                 should_comment=should_comment, custom_comments=custom_comments,
                 comment_template_category=comment_template_category, max_comments=max_comments,
-                should_like=should_like
+                should_like=should_like, on_like=on_like, on_comment=on_comment
             )
             posts_liked = sequential_stats['posts_liked']
             posts_commented = sequential_stats.get('posts_commented', 0)
@@ -131,11 +151,14 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
     def like_posts_with_sequential_scroll(self, username: str, max_likes: int = 3, config: dict = None, profile_data: dict = None,
                                          should_comment: bool = False, custom_comments: list = None,
                                          comment_template_category: str = 'generic', max_comments: int = 1,
-                                         should_like: bool = True) -> dict:
+                                         should_like: bool = True,
+                                         on_like: Optional[Callable[[], None]] = None,
+                                         on_comment: Optional[Callable[[], None]] = None) -> dict:
         """Like posts with sequential scroll method.
-        
+
         Args:
             should_like: If False, skip liking posts (only comment if should_comment is True)
+            on_like/on_comment: fired as each gesture lands (see like_profile_posts).
         """
         config = {**self.default_config, **(config or {})}
         
@@ -265,9 +288,11 @@ class LikeOrchestration(PostNavigationMixin, BaseBusinessAction):
                             stats['posts_liked'] = posts_liked
                             stats['like_times'].append(self._action_timestamp())
                             self.logger.success(f"Post #{posts_seen} liked ({posts_liked}/{max_likes})")
+                            self._notify_gesture(on_like, 'like')
                         if commented_ok:
                             posts_commented += 1
                             stats['posts_commented'] = posts_commented
+                            self._notify_gesture(on_comment, 'comment')
                 else:
                     self.logger.debug(f"Post #{posts_seen} not engaged")
                 

@@ -77,6 +77,15 @@ class _Host(InteractionEngineMixin):
     def _record_action(self, *_a, **_k):
         return None
 
+    # Stubs for the mixins production composes alongside the engine. Without them the
+    # story loop raises AttributeError, which the engine swallows into a None result —
+    # every assertion below then failed for a harness reason, not a real one.
+    def _action_timestamp(self, *_a, **_k):
+        return '2026-01-01 00:00:00'
+
+    def _recover_from_blocking_modal(self, *_a, **_k):
+        return None
+
 
 def _run(monkeypatch, *, slides, do_story_like=True, max_story_likes=3,
          fallback_like_slot=-1, max_stories=10, report_total=True,

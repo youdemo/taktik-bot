@@ -79,21 +79,14 @@ class StatsRecordingMixin:
             account_id: Account ID for DB recording
             session_id: Session ID for DB recording
         """
+        # Only the per-profile counters are set here. The ACTION counters (likes, follows,
+        # comments, stories, story likes) are moved by the interaction engine at the moment
+        # of each gesture, so the desktop live panel ticks action by action instead of
+        # jumping by the profile's total once it is done — re-adding the totals here would
+        # double-count. Same reason the FOLLOW is not re-recorded in DB: _do_follow already
+        # did it when the button was tapped.
         self.stats_manager.increment('profiles_visited')
         self.stats_manager.increment('profiles_interacted')
-
-        if interaction_result.get('likes', 0) > 0:
-            self.stats_manager.increment('likes', interaction_result['likes'])
-        if interaction_result.get('follows', 0) > 0:
-            self.stats_manager.increment('follows', interaction_result['follows'])
-            # DB recording intentionally absent: the interaction engine's _do_follow
-            # already recorded the FOLLOW at the moment of the gesture. Recording it
-            # again here double-counted every follow made by the likers workflows
-            # (hashtag / post-URL), the only callers of this method.
-        if interaction_result.get('stories', 0) > 0:
-            self.stats_manager.increment('stories_watched', interaction_result['stories'])
-        if interaction_result.get('stories_liked', 0) > 0:
-            self.stats_manager.increment('stories_liked', interaction_result['stories_liked'])
 
     def _validate_resource_limits(self, available: int, requested: int, resource_name: str = "resources") -> Dict[str, Any]:
         """

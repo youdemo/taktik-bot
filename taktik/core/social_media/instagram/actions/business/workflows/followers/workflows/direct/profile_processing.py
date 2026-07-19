@@ -109,20 +109,21 @@ class DirectProfileProcessingMixin:
             return False
         
         # --- Interaction happened or skipped by probability ---
+        # Action counters (likes/follows/stories/story likes/comments) are NOT added here:
+        # the interaction engine now moves them as each gesture lands, so the desktop live
+        # panel ticks in real time instead of jumping by the profile's total. Adding them
+        # again here would double-count. Only the local run tallies are accumulated.
         if result.actually_interacted:
             if result.likes > 0:
                 stats['liked'] += result.likes
-                self.stats_manager.increment('likes', result.likes)
             if result.follows > 0:
                 stats['followed'] += 1
-                self.stats_manager.increment('follows')
             if result.stories > 0:
                 stats['stories_viewed'] += result.stories
-                self.stats_manager.increment('stories_watched')
             if result.stories_liked > 0:
                 stats['story_likes'] += result.stories_liked
-                self.stats_manager.increment('story_likes')
-            
+
+
             stats['interacted'] += 1
             stats['processed'] += 1
             self.stats_manager.increment('profiles_interacted')

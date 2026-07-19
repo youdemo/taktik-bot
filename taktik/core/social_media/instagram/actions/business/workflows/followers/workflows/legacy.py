@@ -124,21 +124,21 @@ class FollowerLegacyWorkflowMixin:
                     
                     try:
                         if result.actually_interacted:
+                            # Action counters are moved by the interaction engine as each
+                            # gesture lands (real-time live panel); only the local run
+                            # tallies are accumulated here, or they would double-count.
                             if result.likes > 0:
                                 stats['liked'] += 1
-                                self.stats_manager.increment('likes', result.likes)
                             if result.follows > 0:
                                 stats['followed'] += 1
-                                self.stats_manager.increment('follows')
                             if result.stories > 0:
                                 stats['stories_viewed'] += 1
-                                self.stats_manager.increment('stories_watched')
                             if result.comments > 0:
                                 if 'comments' not in stats:
                                     stats['comments'] = 0
                                 stats['comments'] += 1
-                                self.stats_manager.increment('comments')
-                            
+
+
                             stats['processed'] += 1
                             self.stats_manager.increment('profiles_interacted')
                             self.human.record_interaction()

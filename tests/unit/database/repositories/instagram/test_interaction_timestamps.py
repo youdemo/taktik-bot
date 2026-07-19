@@ -115,8 +115,14 @@ def test_service_record_interaction_threads_interaction_time(db):
     assert rows and rows[0]['interaction_time'] == '2026-07-01 09:30:00'
 
 
-def test_update_stats_from_interaction_result_no_longer_records_follow_in_db(monkeypatch):
-    """_do_follow already records the FOLLOW at the gesture; the likers path re-recorded it."""
+def test_update_stats_from_interaction_result_records_neither_db_nor_action_counters(monkeypatch):
+    """The likers path only sets the per-PROFILE counters.
+
+    Two things it must NOT do: re-record the FOLLOW in DB (_do_follow already did it at the
+    gesture), and re-add the profile's action totals to the stats manager. The interaction
+    engine moves likes/follows/comments/stories as each gesture lands so the desktop live
+    panel ticks in real time; adding the totals back here would double every counter.
+    """
     from taktik.core.social_media.instagram.actions.core.base_business.stats_recording import StatsRecordingMixin
 
     calls = []
@@ -143,5 +149,4 @@ def test_update_stats_from_interaction_result_no_longer_records_follow_in_db(mon
     )
 
     assert calls == []  # no direct DB write anymore — the engine already recorded it
-    assert ('follows', 1) in host.stats_manager.increments
-    assert ('likes', 2) in host.stats_manager.increments
+    assert host.stats_manager.increments == [('profiles_visited', 1), ('profiles_interacted', 1)]

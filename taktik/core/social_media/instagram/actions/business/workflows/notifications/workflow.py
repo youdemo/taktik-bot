@@ -117,9 +117,12 @@ class NotificationsBusiness(NotificationExtractionMixin, NotificationInteraction
                     stats['stories_watched'] += interaction_result.get('stories', 0)
                     stats['stories_liked'] += interaction_result.get('stories_liked', 0)
                     
-                    self.stats_manager.increment('interactions')
-                    self.stats_manager.increment('likes', interaction_result.get('likes', 0))
-                    self.stats_manager.increment('follows', interaction_result.get('follows', 0))
+                    # Likes/follows are moved by the interaction engine at the moment of each
+                    # gesture (real-time live panel); re-adding the totals here would
+                    # double-count them. 'interactions' is not a declared counter — the
+                    # panel reads 'profiles_interacted', so this was silently logging
+                    # "Unknown statistic" and leaving the card at zero.
+                    self.stats_manager.increment('profiles_interacted')
                 else:
                     stats['profiles_filtered'] += 1
                 
