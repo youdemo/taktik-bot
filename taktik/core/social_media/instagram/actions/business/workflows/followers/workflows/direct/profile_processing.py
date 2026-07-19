@@ -15,10 +15,35 @@ class DirectProfileProcessingMixin:
     ):
         """
         Process a single follower: click profile → extract info → filter → interact.
-        
+
         Returns:
             True if interaction happened, False if skipped/filtered, None if critical error (can't recover)
         """
+        # === Skip niveau-LISTE (le moins cher de tous) ===
+        # La LIGNE du follower montre deja notre relation via son bouton (Suivre / Suivi(e) / Suivre
+        # en retour), lisible SANS ouvrir le profil. Si une relation existe et que l'operateur veut
+        # la skipper, on skip ICI : zero navigation, zero extraction, zero appel IA. C'est un
+        # court-circuit du garde-fou niveau-profil (_process_profile_on_screen), qui reste la source
+        # de verite. FAIL-OPEN : une ligne illisible ('unknown', ex. derniere ligne partiellement
+        # scrollee) retombe sur le clic + le garde-fou profil -> jamais de cible valide perdue.
+        fc = interaction_config.get('filter_criteria', interaction_config.get('filters', {})) or {}
+        if fc.get('skip_follows_us') or fc.get('skip_already_following'):
+            row_state = self.detection_actions.get_row_follow_state(username)
+            reason = None
+            if fc.get('skip_follows_us') and row_state == 'follow_back':
+                reason = 'Already follows us'
+            elif fc.get('skip_already_following') and row_state in ('following', 'requested'):
+                reason = 'Already followed by us'
+            if reason:
+                self.logger.info(f"🤝 @{username} ignoré (liste, sans ouvrir le profil) — {reason}")
+                self.stats_manager.increment('relationship_skipped')
+                # Enregistrer comme filtre pour que is_profile_skippable le saute aux passes suivantes
+                # (jamais revisiter) — meme voie que le skip niveau-profil.
+                self._record_filtered_in_db(
+                    username, reason, 'FOLLOWER', target_username, account_id, self._get_session_id()
+                )
+                return False
+
         # Progress info
         profiles_clicked = stats.get('profiles_clicked', 0) + 1
         stats['profiles_clicked'] = profiles_clicked

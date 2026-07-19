@@ -7,6 +7,36 @@ from ...core.base_action import BaseAction
 from ....ui.selectors.surfaces.profile import PROFILE_SELECTORS
 
 
+def classify_follow_state(text: str, selectors) -> Optional[str]:
+    """Traduit le TEXTE d'un bouton d'action (header profil OU ligne de liste) en etat de relation,
+    via les libelles de la couche locale (`follow_state_labels_*` de `selectors`).
+
+    Returns: 'following' | 'requested' | 'follow_back' | 'follow' | None (aucun match).
+
+    ORDRE PORTEUR : following > requested > follow_back > follow. "Following" contient "Follow" et
+    "Suivre en retour" contient "Suivre" — tester 'follow' en premier renverrait 'follow' pour un
+    bouton "Suivre en retour". Les libelles des differents etats ne se recouvrent pas entre eux,
+    donc l'ordre reste correct meme si `L()` retombe sur l'union multi-langue (Lab / sans detection).
+    Source de verite UNIQUE, partagee par la lecture header et la lecture ligne-de-liste.
+    """
+    t = (text or '').strip().lower()
+    if not t:
+        return None
+
+    def _m(labels) -> bool:
+        return any(lbl.strip().lower() in t for lbl in (labels or []) if lbl and lbl.strip())
+
+    if _m(selectors.follow_state_labels_following):
+        return 'following'
+    if _m(selectors.follow_state_labels_requested):
+        return 'requested'
+    if _m(selectors.follow_state_labels_follow_back):
+        return 'follow_back'
+    if _m(selectors.follow_state_labels_follow):
+        return 'follow'
+    return None
+
+
 class ProfileInteractionMixin(BaseAction):
     """Mixin: follow/unfollow, message button, follow state detection, review popup."""
 
@@ -127,15 +157,6 @@ class ProfileInteractionMixin(BaseAction):
 
     # === Follow button state ===
 
-    @staticmethod
-    def _text_matches_any_label(text: str, labels: Optional[List[str]]) -> bool:
-        """Le texte du bouton contient-il l'un des libelles ? (comparaison insensible a la casse)"""
-        return any(
-            label.strip().lower() in text
-            for label in (labels or [])
-            if label and label.strip()
-        )
-
     def get_follow_button_state(self) -> str:
         """
         Etat de la relation, lu sur le bouton d'action du header profil.
@@ -163,17 +184,9 @@ class ProfileInteractionMixin(BaseAction):
                 btn = self.device.xpath(anchor)
                 if not btn.exists:
                     continue
-                text = (btn.get_text() or '').strip().lower()
-                if not text:
-                    continue
-                if self._text_matches_any_label(text, selectors.follow_state_labels_following):
-                    return 'following'
-                if self._text_matches_any_label(text, selectors.follow_state_labels_requested):
-                    return 'requested'
-                if self._text_matches_any_label(text, selectors.follow_state_labels_follow_back):
-                    return 'follow_back'
-                if self._text_matches_any_label(text, selectors.follow_state_labels_follow):
-                    return 'follow'
+                state = classify_follow_state(btn.get_text() or '', selectors)
+                if state:
+                    return state
             except Exception:
                 continue
 

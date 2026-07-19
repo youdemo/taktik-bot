@@ -100,7 +100,62 @@ class ListDetectionMixin(BaseAction):
         
         self.logger.debug(f"{len(followers)} clickable followers found")
         return followers
-    
+
+    def get_row_follow_state(self, username: str) -> str:
+        """Relation affichee par le bouton de la LIGNE de ce follower — lue SANS ouvrir le profil.
+
+        Returns: 'follow' | 'follow_back' | 'following' | 'requested' | 'unknown'.
+        'unknown' quand la ligne est illisible / partiellement scrollee (l'appelant retombe alors sur
+        le garde-fou au niveau profil). Chaque ligne porte exactement un username + un bouton : on
+        apparie le username a son bouton par la position verticale (le centre-Y du username tombe dans
+        la plage-Y du bouton de la meme ligne). Aucun libelle en dur : le texte est classe par
+        `classify_follow_state` via les libelles de la couche locale (memes que le header).
+        """
+        try:
+            from ..interaction.profile_interaction import classify_follow_state
+            from ....ui.selectors.surfaces.profile import PROFILE_SELECTORS
+
+            def _yband(el):
+                try:
+                    b = tuple(el.bounds)  # (left, top, right, bottom)
+                    if len(b) == 4 and b[3] > b[1]:
+                        return (b[1] + b[3]) // 2, b[1], b[3]
+                except Exception:
+                    pass
+                return None
+
+            # centre-Y du username cible
+            target_yc = None
+            for selector in self.detection_selectors.follow_list_username_selectors:
+                els = self.device.xpath(selector)
+                if not els.exists:
+                    continue
+                for el in els.all():
+                    t = el.text
+                    if t and self._clean_username(t) == username:
+                        band = _yband(el)
+                        if band:
+                            target_yc = band[0]
+                        break
+                if target_yc is not None:
+                    break
+            if target_yc is None:
+                return 'unknown'
+
+            # le bouton de ligne dont la plage-Y contient ce centre = meme ligne
+            for selector in PROFILE_SELECTORS.follow_list_row_buttons:
+                els = self.device.xpath(selector)
+                if not els.exists:
+                    continue
+                for el in els.all():
+                    band = _yband(el)
+                    if band and band[1] <= target_yc <= band[2]:
+                        return classify_follow_state(el.text or '', PROFILE_SELECTORS) or 'unknown'
+            return 'unknown'
+        except Exception as exc:
+            self.logger.debug(f"get_row_follow_state(@{username}) error: {exc}")
+            return 'unknown'
+
     def click_follower_in_list(self, username: str) -> bool:
         """
         Clique sur un follower spécifique dans la liste.

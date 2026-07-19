@@ -55,6 +55,21 @@ def list_visible_profiles(a, p):
             "usernames": usernames[:80], "message": f"{len(usernames)} visible profile(s)"}
 
 
+@action("scraping.get_row_follow_state")
+def get_row_follow_state(a, p):
+    """Read the relationship shown by a follower ROW's action button WITHOUT opening the profile:
+    follow (none) / follow_back (they follow us) / following (we follow them) / requested / unknown.
+    Lets a workflow skip an already-related follower straight from the list. Param: username.
+    Be on a followers/following list. Same production read the acquisition workflow uses."""
+    username = (p.get("username") or "").strip().lstrip("@")
+    if not username:
+        return {"success": False, "message": "username param required"}
+    state = a.detection.get_row_follow_state(username)
+    logger.info(f"scraping.get_row_follow_state @{username}: {state}")
+    return {"success": state != "unknown", "message": state,
+            "details": {"username": username, "follow_state": state}}
+
+
 @action("scraping.is_list_limited")
 def is_list_limited(a, p):
     """Detection: is the followers list LIMITED (Meta Verified / Business cap)?"""

@@ -87,6 +87,13 @@ class ProfileSelectors:
         '//*[@resource-id="com.instagram.android:id/follow_button"]',
     ])
 
+    # Bouton d'action de CHAQUE LIGNE d'une liste de followers/following (resource-id neutre langue).
+    # Porte la meme relation (Suivre / Suivi(e) / Suivre en retour) que le header, mais lisible SANS
+    # ouvrir le profil -> permet un skip au niveau liste. Le texte est classe par `classify_follow_state`.
+    follow_list_row_buttons: List[str] = field(default_factory=lambda: [
+        '//*[@resource-id="com.instagram.android:id/follow_list_row_large_follow_button"]',
+    ])
+
     @property
     def follow_button(self) -> List[str]:
         return self._follow_button_base + L("profile.follow_button")
