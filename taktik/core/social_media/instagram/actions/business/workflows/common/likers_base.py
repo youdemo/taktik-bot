@@ -155,6 +155,30 @@ class LikersWorkflowBase(BaseBusinessAction):
                     continue
                 known_usernames_streak = 0
 
+                # === Skip niveau-LISTE (le moins cher) — meme mecanique que le chemin followers ===
+                # La popup likers est le meme composant "unified follow list" : chaque ligne porte un
+                # bouton d'action (Suivre / Suivi(e) / Suivre en retour) lisible SANS ouvrir le
+                # profil. FAIL-OPEN : ligne illisible ('unknown') -> clic + garde-fou niveau-profil
+                # (_process_profile_on_screen), qui reste la source de verite.
+                fc = effective_config.get('filter_criteria', effective_config.get('filters', {})) or {}
+                if fc.get('skip_follows_us') or fc.get('skip_already_following'):
+                    row_state = self.detection_actions.get_row_follow_state(username)
+                    rel_reason = None
+                    if fc.get('skip_follows_us') and row_state == 'follow_back':
+                        rel_reason = 'Already follows us'
+                    elif fc.get('skip_already_following') and row_state in ('following', 'requested'):
+                        rel_reason = 'Already followed by us'
+                    if rel_reason:
+                        self.logger.info(f"🤝 @{username} ignoré (liste, sans ouvrir le profil) — {rel_reason}")
+                        self.stats_manager.increment('relationship_skipped')
+                        # Enregistrer comme filtre : is_profile_skippable le sautera aux passes
+                        # suivantes (jamais revisiter) — meme voie que le skip niveau-profil.
+                        self._record_filtered_in_db(
+                            username, rel_reason, source_type, source_name, account_id, session_id
+                        )
+                        _ledger(username, "filtered", "relationship")
+                        continue
+
                 # Click on profile
                 self.logger.info(
                     f"[{stats['users_interacted']}/{max_interactions}] 👆 Clicking on @{username}"
